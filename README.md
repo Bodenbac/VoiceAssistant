@@ -1,4 +1,4 @@
-# <img src="https://github.com/Bodenbac/VoiceAssistant/blob/main/images/icon.png" alt="Voice Assistant" width="32" height="32"> VoiceAssistant
+# <img src="https://github.com/Bodenbac/VoiceAssistant/blob/main/images/icon.png" alt="Voice Assistant" width="64" height="64"> VoiceAssistant
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/Bodenbac/VoiceAssistant)
