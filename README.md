@@ -5,7 +5,7 @@
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-black.svg)](https://black.readthedocs.io/)
 
 > A Voice Assistant which takes spoken English as input and gives English as output
-<img width="1745" height="632" alt="image" src="https://github.com/user-attachments/assets/d0a6406e-c09e-40c4-a68d-7639fb9b6b5d" />
+
 
 ## 📋 Overview
 
