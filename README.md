@@ -1,4 +1,4 @@
-# <img src="https://github.com/Bodenbac/StorageManagementSoftware/blob/main/assets/storage_dot.svg" alt="Storage Management Software" width="32" height="32"> StorageManagementSoftware
+# <img src="https://github.com/Bodenbac/StorageManagementSoftware/blob/main/assets/storage_dot.svg" alt="Voice Assistant" width="32" height="32"> VoiceAssistant
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/Bodenbac/VoiceAssistant)
