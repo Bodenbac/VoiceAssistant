@@ -9,7 +9,7 @@ Build a local, modular voice assistant that takes spoken English as input and pr
 ## Overview
 
 - Offline-first design: all processing happens locally.
-- Modular architecture aligned to task ownership (ASR, TTS, NLU, Dialogue, APIs).
+- Modular architecture (ASR, TTS, NLU, Dialogue, APIs).
 - Simple, swappable interfaces to enable parallel development.
 
 ## Quick Start
@@ -38,7 +38,45 @@ Run the assistant
 - `models/voskmodel/` — local Vosk model files (not included in repo)
 - `tests/` — basic tests (e.g., NLU rules)
 
-See `task_ownership.md` for module responsibilities and owners.
+
+
+### Layout
+
+```
+VoiceAssistant/
+├─ voice_assistant/
+│  ├─ __main__.py
+│  ├─ __init__.py
+│  ├─ app.py
+│  ├─ config.py
+│  ├─ interfaces.py
+│  ├─ asr/
+│  │  ├─ __init__.py
+│  │  └─ vosk_asr.py
+│  ├─ tts/
+│  │  ├─ __init__.py
+│  │  └─ pyttsx_tts.py
+│  ├─ nlu/
+│  │  ├─ __init__.py
+│  │  └─ rule_based.py
+│  ├─ dialogue/
+│  │  ├─ __init__.py
+│  │  └─ manager.py
+│  └─ apis/
+│     ├─ __init__.py
+│     ├─ weather.py
+│     └─ calendar.py
+├─ models/
+│  └─ voskmodel/   (place Vosk model here)
+├─ tests/
+│  └─ test_nlu.py
+├─ images/
+│  └─ icon.png
+├─ requirements.txt
+├─ Dockerfile
+├─ task_ownership.md
+└─ README.md
+```
 
 ## Milestone 1 (ASR + TTS)
 
