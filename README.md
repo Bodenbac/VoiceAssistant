@@ -1,8 +1,10 @@
-# VoiceAssistant
+# <img src="images/icon.png" alt="Voice Assistant" width="64" height="64"> VoiceAssistant
+
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#)
+[![Code Style](https://img.shields.io/badge/Code%20Style-Black-black.svg)](https://black.readthedocs.io/)
 
 Build a local, modular voice assistant that takes spoken English as input and produces spoken English as output. The system runs offline (no cloud models) and integrates a Weather API and a Calendar API in later milestones.
-
-![Voice Assistant Icon](images/icon.png)
 
 ## Overview
 
