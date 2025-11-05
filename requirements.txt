@@ -1,0 +1,6 @@
+sounddevice>=0.4
+vosk>=0.3
+pyttsx3>=2.90
+pywin32>=306; platform_system=="Windows"
+requests>=2.32
+

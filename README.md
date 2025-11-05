@@ -1,116 +1,73 @@
-# <img src="https://github.com/Bodenbac/VoiceAssistant/blob/main/images/icon.png" alt="Voice Assistant" width="64" height="64"> VoiceAssistant
+# VoiceAssistant
 
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/Bodenbac/VoiceAssistant)
-[![Code Style](https://img.shields.io/badge/Code%20Style-Black-black.svg)](https://black.readthedocs.io/)
+Build a local, modular voice assistant that takes spoken English as input and produces spoken English as output. The system runs offline (no cloud models) and integrates a Weather API and a Calendar API in later milestones.
 
-> A Voice Assistant which takes spoken English as input and gives English as output
+![Voice Assistant Icon](images/icon.png)
 
+## Overview
 
-## 📋 Overview
+- Offline-first design: all processing happens locally.
+- Modular architecture aligned to task ownership (ASR, TTS, NLU, Dialogue, APIs).
+- Simple, swappable interfaces to enable parallel development.
 
-"Here a description of Voice Assistant"
+## Quick Start
 
-### ✨ Key Features
+Prerequisites
+- Python 3.8+
+- An English Vosk model placed at `models/voskmodel` (e.g., `vosk-model-small-en-us-0.15` extracted into that folder)
 
-"Here Key Features"
+Install dependencies
+- `pip install -r requirements.txt`
 
----------------------------------------------------------------------------------------------
+Run the assistant
+- `python -m voice_assistant`
 
-## 🚀 Quick Start
+## Project Structure
 
-### Prerequisites
+- `voice_assistant/interfaces.py` — shared interfaces for ASR, TTS, NLU, Dialogue, Weather, Calendar
+- `voice_assistant/asr/` — ASR implementations (Vosk/Kaldi)
+- `voice_assistant/tts/` — TTS implementations (pyttsx3 / SAPI on Windows)
+- `voice_assistant/nlu/` — NLU modules (rule-based intent parser for MS1)
+- `voice_assistant/dialogue/` — Dialogue manager (simple rule-based for MS1)
+- `voice_assistant/apis/` — Weather and Calendar API clients (stubs for MS2)
+- `voice_assistant/config.py` — core configuration (sample rate, block size, model path)
+- `voice_assistant/app.py` — orchestrates ASR → NLU → Dialogue → TTS
+- `voice_assistant/__main__.py` — enables `python -m voice_assistant`
+- `models/voskmodel/` — local Vosk model files (not included in repo)
+- `tests/` — basic tests (e.g., NLU rules)
 
-- Python 3.8 or higher
+See `task_ownership.md` for module responsibilities and owners.
 
+## Milestone 1 (ASR + TTS)
 
-### Installation
+- ASR: `voice_assistant/asr/vosk_asr.py` uses Vosk (Kaldi-based), fully offline.
+- TTS: `voice_assistant/tts/pyttsx_tts.py` uses pyttsx3 (SAPI on Windows), fully offline.
+- Both comply with the local-only requirement (no cloud dependencies).
 
-"Here installation guide"
+## Configuration
 
----------------------------------------------------------------------------------------------
+`voice_assistant/config.py`
+- `SAMPLE_RATE`: default 16000
+- `BLOCKSIZE`: default 8000
+- `MODEL_PATH`: default `models/voskmodel`
 
-## 📦 Dependencies
+Tip: Ensure `MODEL_PATH` points to an English model to meet “English in/out” for MS1.
 
-The application is built on the following main components:
+## Docker
 
-"Here dependencies"
+Build
+- `docker build -t voice-assistant .`
 
-See [requirements.txt](requirements.txt) for the complete list of all dependencies.
+Run
+- `docker run --rm -it voice-assistant`
 
-## 🏗️ Architecture
+Note: Audio I/O inside containers depends on host setup (ALSA/PulseAudio passthrough). Adjust run flags for your environment.
 
-```
-VoiceAssistant/
-├── Folder/
-│   ├── File.py
-│   ├── File.py
-│   ├── File.py
-│   └── File.py
-├── File.py
-├── File.py
-```
+## Tests
 
+- Install `pytest` and run: `pytest -q`
+- Example: `tests/test_nlu.py` validates rule-based NLU intents.
 
----------------------------------------------------------------------------------------------
+## Notes
 
-## 📖 Usage
-
-"here description of usage"
-
-
----------------------------------------------------------------------------------------------
-
-## 🤝 Contributors
-
-<table>
-  <tr>
-    <td align="center">
-      <img src="https://github.com/Bodenbac.png" width="100px;" alt="Luis Bodenbach"/>
-      <br />
-      <sub><b>Luis Bodenbach</b></sub>
-      <br />
-      <a href="https://github.com/Bodenbac">💻</a>
-    </td>
-    <td align="center">
-      <img src="https://github.com/person2.png" width="100px;" alt="person2"/>
-      <br />
-      <sub><b>person2</b></sub>
-      <br />
-      <a href="https://github.com/person2">🎨</a>
-    </td>
-    <td align="center">
-      <img src="https://github.com/person3.png" width="100px;" alt="person3"/>
-      <br />
-      <sub><b>person3</b></sub>
-      <br />
-      <a href="https://github.com/person3">📖</a>
-    </td>
-    <td align="center">
-      <img src="https://github.com/Person4.png" width="100px;" alt="Person4"/>
-      <br />
-      <sub><b>person4</b></sub>
-      <br />
-      <a href="https://github.com/person4">🔧</a>
-    </td>
-    <td align="center">
-      <img src="https://github.com/Person5.png" width="100px;" alt="Person5"/>
-      <br />
-      <sub><b>Person5</b></sub>
-      <br />
-      <a href="https://github.com/Person5">🚀</a>
-    </td>
-  </tr>
-</table>
-
-
-## 🙏 Acknowledgments
-
-- Python Community for the amazing open-source libraries
-
-
----
-
-<p align="center">
-  Built with ❤️ for Natural Language Systems
-</p>
+- Only the Weather and Calendar APIs are allowed as external resources. No cloud ASR/TTS.
