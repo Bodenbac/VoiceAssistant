@@ -12,7 +12,8 @@ from .dialogue.manager import SimpleDialogueManager
 
 
 def run() -> None:
-    tts = PyttsxSynthesizer()
+    # Prefer English TTS voice explicitly
+    tts = PyttsxSynthesizer(language="en")
     nlu: IntentRecognizer = SimpleRuleNLU()
     dm = SimpleDialogueManager()
 
@@ -55,4 +56,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-
