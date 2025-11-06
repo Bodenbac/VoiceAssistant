@@ -12,6 +12,14 @@ class SimpleRuleNLU(IntentRecognizer):
         if not t:
             return None
 
+        # Weather-related queries
+        if re.search(r"\b(weather|temperature|forecast|rain|raining|sunny|cloudy|snow)\b", t):
+            return Intent(name="weather_query", slots={})
+
+        # Calendar-related queries
+        if re.search(r"\b(calendar|calender|meeting|meet|event|schedule|appointment|reminder)\b", t):
+            return Intent(name="calendar_query", slots={})
+
         if re.search(r"\b(time|current time|what time is it|what('s| is) the time)\b", t):
             return Intent(name="get_time", slots={})
         if re.search(r"\b(hi|hello|hey|good (morning|afternoon|evening))\b", t):
@@ -20,4 +28,3 @@ class SimpleRuleNLU(IntentRecognizer):
             return Intent(name="exit", slots={})
 
         return Intent(name="fallback", slots={"text": t})
-

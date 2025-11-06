@@ -16,7 +16,7 @@ Build a local, modular voice assistant that takes spoken English as input and pr
 
 Prerequisites
 - Python 3.8+
-- An English Vosk model placed at `models/voskmodel` (e.g., `vosk-model-small-en-us-0.15` extracted into that folder)
+- An English Vosk model placed at `models/voskmodel`
 
 Install dependencies
 - `pip install -r requirements.txt`

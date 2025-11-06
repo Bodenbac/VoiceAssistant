@@ -11,6 +11,11 @@ class SimpleDialogueManager(DialogueManagerIF):
         if intent is None:
             return ""
 
+        if intent.name == "weather_query":
+            return "Weather API is not implemented yet."
+        if intent.name == "calendar_query":
+            return "Calendar API is not available yet."
+
         if intent.name == "get_time":
             return "It is " + datetime.now().strftime("%H:%M")
         if intent.name == "greet":
@@ -20,4 +25,3 @@ class SimpleDialogueManager(DialogueManagerIF):
 
         # fallback
         return "Sorry, I didn't get that."
-
