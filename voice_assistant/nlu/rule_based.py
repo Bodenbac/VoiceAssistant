@@ -18,7 +18,7 @@ class SimpleRuleNLU(IntentRecognizer):
 
         # Calendar-related queries
         if re.search(r"\b(calendar|calender|meeting|meet|event|schedule|appointment|reminder)\b", t):
-            return Intent(name="calendar_query", slots={})
+            return self.get_weather_intent(text)
 
         if re.search(r"\b(time|current time|what time is it|what('s| is) the time)\b", t):
             return Intent(name="get_time", slots={})
@@ -28,3 +28,6 @@ class SimpleRuleNLU(IntentRecognizer):
             return Intent(name="exit", slots={})
 
         return Intent(name="fallback", slots={"text": t})
+
+    def get_weather_intent(self, text: str) -> Optional[Intent]:
+        return Intent(name="calendar_query", slots={})
