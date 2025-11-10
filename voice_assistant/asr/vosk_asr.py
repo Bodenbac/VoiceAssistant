@@ -1,113 +1,96 @@
-from __future__ import annotations
-
 import json
 import queue
 import threading
-from typing import Callable, Optional
 
 import sounddevice as sd
 from vosk import KaldiRecognizer, Model
 
 
-class VoskRecognizer:
-    # simple class around Vosk to keep microphone capture and recognition logic in one place.
-    def __init__(self, model_path: str, sample_rate: int = 16000, blocksize: int = 8000,
-                 device_index: Optional[int] = None) -> None:
-        # path to vosk model
+class ASR:
+    """
+    Small and simple version of Vosk speech recognition.
+    Reads audio from microphone and prints recognized text.
+    """
+
+    # initialize the recognizer class
+    def __init__(self, model_path, sample_rate=16000, blocksize=8000, device=None):
+
         self.model_path = model_path
-        # microphone sampling rate (Hz)
         self.sample_rate = sample_rate
-        # Number of frames per audio block.
         self.blocksize = blocksize
-        # Optional sounddevice input device index. If None, uses default device.
-        self.device_index = device_index
+        self.device = device
 
-        # Lazily created Vosk model and recognizer.
-        self._model: Optional[Model] = None
-        self._recognizer: Optional[KaldiRecognizer] = None
-        # Thread-safe queue of raw PCM bytes from the audio callback.
-        self._queue: "queue.Queue[bytes]" = queue.Queue()
-        # Active microphone stream and worker thread (both started in start()).
-        self._stream: Optional[sd.RawInputStream] = None
-        self._thread: Optional[threading.Thread] = None
-        # Flag to stop the worker loop cleanly.
-        self._running = False
-        # User-supplied function called with final recognized text.
-        self._on_text: Optional[Callable[[str], None]] = None
+        self.model = None
+        self.rec = None
 
-    def set_callback(self, on_text: Callable[[str], None]) -> None:
-        # Let the caller provide a function to receive final transcripts.
-        self._on_text = on_text
+        self.q = queue.Queue()
+        self.stream = None
+        self.thread = None
+        self.running = False
+        self.on_text = None
 
-    def _callback(self, indata, frames, time_info, status):
-        # This runs in sounddevice's audio thread. Keep it tiny.
+    # allow setting a custom callback function
+    def set_callback(self, fn):
+        self.on_text = fn
+
+    # constantly called by sounddevice with new audio data
+    def audio_callback(self, indata, frames, time_info, status):
+
         if status:
-            try:
-                print(status)
-            except Exception:
-                pass
-        # Push raw bytes (16‑bit mono PCM) into the queue for the worker.
-        self._queue.put(bytes(indata))
+            print(status)
+        self.q.put(bytes(indata))
 
-    def start(self) -> None:
-        # stop if already running.
-        if self._running:
+    # start recognition
+    def start(self):
+
+        if self.running:
             return
-        self._running = True
+        self.running = True
 
-        # Load the Vosk model and create the streaming recognizer.
-        self._model = Model(self.model_path)
-        self._recognizer = KaldiRecognizer(self._model, self.sample_rate)
+        self.model = Model(self.model_path)
+        self.rec = KaldiRecognizer(self.model, self.sample_rate)
 
-        # Configure the microphone stream. We use 16-bit samples and 1 channel.
-        args = dict(
+        sd.default.samplerate = self.sample_rate
+        kwargs = dict(
             samplerate=self.sample_rate,
             blocksize=self.blocksize,
             dtype="int16",
             channels=1,
-            callback=self._callback,
+            callback=self.audio_callback,
         )
-        if self.device_index is not None:
-            args["device"] = self.device_index
 
-        # Ensure sounddevice uses our intended sample rate.
-        sd.default.samplerate = self.sample_rate
-        # Create and start the non-blocking input stream.
-        self._stream = sd.RawInputStream(**args)
-        self._stream.start()
+        # create and start the microphone stream
+        self.stream = sd.RawInputStream(**kwargs)
+        self.stream.start()
 
-        # Spin up a background thread to feed audio to Vosk and collect results.
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
+        # create and start the background worker thread
+        self.thread = threading.Thread(target=self.worker, daemon=True)
+        self.thread.start()
 
-    def stop(self) -> None:
-        # tell worker loop to exit and try to shut down the stream.
-        self._running = False
+    # stop recognition
+    def stop(self):
+
+        self.running = False
         try:
-            if self._stream is not None and getattr(self._stream, "active", False):
-                self._stream.stop()
+            if self.stream is not None:
+                self.stream.stop()
+                self.stream.close()
         except Exception:
             pass
-        try:
-            if self._stream is not None:
-                self._stream.close()
-        except Exception:
-            pass
-        self._stream = None
+        self.stream = None
 
-    def _loop(self) -> None:
-        # Runs on the background thread: pull audio from the queue and feed it to the recognizer. Emit only finalized results.
-        assert self._recognizer is not None
-        while self._running:
-            data = self._queue.get()
-            if self._recognizer.AcceptWaveform(data):
+    # background worker thread
+    def worker(self):
+
+        while self.running:
+            data = self.q.get()
+            if self.rec and self.rec.AcceptWaveform(data):
                 try:
-                    result = json.loads(self._recognizer.Result())
+                    result = json.loads(self.rec.Result())
                 except Exception:
                     result = {}
-                txt = result.get("text", "")
-                if txt and self._on_text:
-                    self._on_text(txt)
-            else:
-                # Partial hypotheses are available via self._recognizer.PartialResult(), but we ignore them here.
-                pass
+                text = result.get("text", "").strip()
+                if text:
+                    print(">>", text)
+                    if self.on_text:
+                        self.on_text(text)

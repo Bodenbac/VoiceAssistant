@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover - optional on non-Windows
 
 
 class PyttsxSynthesizer:
+    
     def __init__(self, *, language: Optional[str] = "en", voice_name: Optional[str] = None, rate: int = 170) -> None:
         self._engine = None  # lazy init
         self._sapi_voice = None
