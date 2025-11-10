@@ -9,8 +9,6 @@ from .asr import ASR
 from .tts import EspeakSynthesizer, PyttsxSynthesizer
 from .nlu.rule_based import SimpleRuleNLU
 from .dialogue.manager import SimpleDialogueManager
-from .apis.weather import WeatherClientImpl
-from .apis.calendar import CalendarClientImpl
 
 _AVAILABLE_TTS = {
     "espeak": "eSpeak NG (CLI)",
@@ -60,7 +58,7 @@ def _build_asr() -> ASR:
 def run() -> None:
     tts = _build_tts()
     nlu: IntentRecognizer = SimpleRuleNLU()
-    dm = SimpleDialogueManager(weather=WeatherClientImpl(), calendar=CalendarClientImpl())
+    dm = SimpleDialogueManager()
 
     asr = _build_asr()
 
