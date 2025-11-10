@@ -94,3 +94,4 @@ class ASR:
                     print(">>", text)
                     if self.on_text:
                         self.on_text(text)
+
