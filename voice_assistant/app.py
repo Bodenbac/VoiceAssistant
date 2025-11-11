@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
 from .config import BLOCKSIZE, MODEL_PATH, SAMPLE_RATE
@@ -10,33 +11,37 @@ from .tts import EspeakSynthesizer, PyttsxSynthesizer
 from .nlu.rule_based import SimpleRuleNLU
 from .dialogue.manager import SimpleDialogueManager
 
-_AVAILABLE_TTS = {
-    "espeak": "eSpeak NG (CLI)",
-    "pyttsx": "pyttsx3 (SAPI/OS built-in)",
+TTS_OPTIONS = {
+    "e": ("espeak", "eSpeak NG"),
+    "p": ("pyttsx", "pyttsx3"),
 }
+DEFAULT_TTS_CHOICE = "e"
 
 
-def _determine_tts_backend(default: str = "espeak") -> str:
+def determine_tts_backend(default_choice: str = DEFAULT_TTS_CHOICE) -> tuple[str, str]:
+    default_backend, default_label = TTS_OPTIONS[default_choice]
     if sys.stdin is None or not sys.stdin.isatty():
-        print(f"[VoiceAssistant] No interactive terminal detected. Defaulting to {default}.")
-        return default
+        print(f"[VoiceAssistant] No interactive terminal detected. Defaulting to {default_label}.")
+        return default_backend, default_label
 
-    prompt = f"Select TTS backend (espeak / pyttsx) [{default}]: "
+    opts = ", ".join(f"{key} ({label})" for key, (_, label) in TTS_OPTIONS.items())
+    prompt = f"Select TTS backend [{opts}] [default: {default_choice}]: "
     while True:
         try:
             choice = input(prompt).strip().lower()
         except EOFError:
             choice = ""
-        backend = choice or default
-        if backend in _AVAILABLE_TTS:
-            return backend
-        supported = ", ".join(_AVAILABLE_TTS)
+        key = choice or default_choice
+        if key in TTS_OPTIONS:
+            backend, label = TTS_OPTIONS[key]
+            return backend, label
+        supported = ", ".join(TTS_OPTIONS)
         print(f"Unsupported option '{choice}'. Please choose one of: {supported}.")
 
 
-def _build_tts() -> SpeechSynthesizer:
-    backend = _determine_tts_backend()
-    print(f"[VoiceAssistant] Requested TTS backend: {backend} ({_AVAILABLE_TTS[backend]}).")
+def build_tts() -> SpeechSynthesizer:
+    backend, label = determine_tts_backend()
+    print(f"[VoiceAssistant] Requested TTS backend: {backend} ({label}).")
     try:
         if backend == "espeak":
             synth = EspeakSynthesizer()
@@ -50,17 +55,17 @@ def _build_tts() -> SpeechSynthesizer:
         return PyttsxSynthesizer(language="en")
 
 
-def _build_asr() -> ASR:
+def build_asr() -> ASR:
     print("[VoiceAssistant] Using ASR backend: vosk_asr (simple demo recognizer).")
     return ASR(MODEL_PATH, SAMPLE_RATE, BLOCKSIZE)
 
 
 def run() -> None:
-    tts = _build_tts()
+    tts = build_tts()
     nlu: IntentRecognizer = SimpleRuleNLU()
     dm = SimpleDialogueManager()
 
-    asr = _build_asr()
+    asr = build_asr()
 
     def on_text(txt: str) -> None:
         intent = nlu.parse(txt)
@@ -75,15 +80,32 @@ def run() -> None:
 
     asr.set_callback(on_text)
 
-    tts.speak("Assistant starting. Loading speech model. Please wait.")
-    try:
-        asr.start()
-    except Exception as e:
-        print("Failed to start ASR:", e)
+    start_event = threading.Event()
+    start_error: list[Exception] = []
+
+    def bootstrap_asr() -> None:
+        try:
+            asr.start()
+        except Exception as exc:
+            start_error.append(exc)
+        finally:
+            start_event.set()
+
+    threading.Thread(target=bootstrap_asr, daemon=True).start()
+
+    tts.speak("Assistant is starting. Loading speech model. Please wait.")
+
+    if not start_event.wait(timeout=30):
+        print("[VoiceAssistant] ASR startup timed out after 30 seconds.")
+        tts.speak("The speech model did not load in time. Please try restarting the assistant.")
+        return
+
+    if start_error:
+        print("Failed to start ASR:", start_error[0])
         tts.speak("Failed to load the speech model.")
         return
 
-    tts.speak("Microphone is active. Ready to go.")
+    tts.speak("Done! Ready to go.")
 
     try:
         while True:
