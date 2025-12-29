@@ -30,7 +30,9 @@ class SimpleDialogueManager(DialogueManagerIF):
             return "Goodbye!"
 
         # fallback
-        return "Sorry, I didn't get that."
+        if intent.name == "fallback":
+            return "Sorry, I didn't get that."
+        return "Hello, Try again"
 
     def create_weather_response(self, intent, raw_text):
         location = intent.slots.get("location", "Marburg")

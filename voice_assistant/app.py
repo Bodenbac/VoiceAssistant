@@ -66,12 +66,25 @@ def run() -> None:
     dm = SimpleDialogueManager()
 
     asr = build_asr()
+    # is_speaking = False  clever fix but doesnt work
 
     def on_text(txt: str) -> None:
+        is_speaking = False
+        if is_speaking:
+            return
+        
         intent = nlu.parse(txt)
         response = dm.handle(intent, txt)
         if response:
-            tts.speak(response)
+            is_speaking = True
+            try:
+                asr.stop() # stupid fix but works
+                tts.speak(response)
+                asr.start()
+            except Exception as e:
+                print("THIS FUCKING PIECE OF GARBAGE DOES NOT WORK: ,", e)
+            finally:
+                is_speaking=False
         if intent and intent.name == "exit":
             # small delay to allow TTS to finish
             time.sleep(0.3)
