@@ -26,8 +26,19 @@ class SimpleRuleNLU(IntentRecognizer):
             return Intent(name="greet", slots={})
         if re.search(r"\b(exit|quit|stop|close|goodbye)\b", t):
             return Intent(name="exit", slots={})
+        # follow-up like "what about tomorrow?"
+        if re.search(r"\b(tomorrow|today|then|that day)\b", t):
+            return self.get_weather_intent(text)
 
         return Intent(name="fallback", slots={"text": t})
 
     def get_weather_intent(self, text: str) -> Optional[Intent]:
-        return Intent(name="weather_query", slots={})
+        slots = {}
+        if "tomorrow" in text.lower():
+            slots["day"] = 1
+        elif "today" in text.lower():
+            slots["day"] = 0
+        m = re.search(r"after\s+(\d+)\s+day", text.lower())
+        if m:
+            slots["day"] = int(m.group(1))
+        return Intent(name="weather_query", slots=slots)

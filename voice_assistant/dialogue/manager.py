@@ -11,30 +11,42 @@ class SimpleDialogueManager(DialogueManagerIF):
 
     def __init__(self):
         self.weather_client = RestWeatherClient()
+        self.last_intent: Optional[Intent] = None
 
     def handle(self, intent: Optional[Intent], raw_text: str) -> str:
         if intent is None:
+            print("NO INTENT FOUND!")
+            response =  ""
             return ""
 
-        if intent.name == "weather_query":
-            return self.create_weather_response(intent, raw_text)
+        elif intent.name == "weather_query":
+            response =  self.create_weather_response(intent, raw_text)
 
-        if intent.name == "calendar_query":
-            return "Calendar API is not available yet."
+        elif intent.name == "calendar_query":
+            response = "Calendar API is not available yet."
 
-        if intent.name == "get_time":
-            return "It is " + datetime.now().strftime("%H:%M")
-        if intent.name == "greet":
-            return "Hello! How can I help?"
-        if intent.name == "exit":
-            return "Goodbye!"
+        elif intent.name == "get_time":
+            response =  "It is " + datetime.now().strftime("%H:%M")
+        elif intent.name == "greet":
+            response =  "Hello! How can I help?"
+        elif intent.name == "exit":
+            response =   "Goodbye!"
 
         # fallback
-        if intent.name == "fallback":
-            return "Sorry, I didn't get that."
-        return "Hello, Try again"
+        elif intent.name == "fallback":
+            response =  "Sorry, I didn't get that."
+        else: 
+            response = "Sorry, i didn't get that."
+        self.last_intent = intent
+        #TODO: Change to new response with intent information
+        return response
 
     def create_weather_response(self, intent, raw_text):
+        # inherit missing slots from previous intent
+        if self.last_intent and self.last_intent.name == "weather_query":
+            for key, value in self.last_intent.slots.items():
+                intent.slots.setdefault(key, value)
+
         location = intent.slots.get("location", "Marburg")
         day_index = intent.slots.get("day", 0)
 
