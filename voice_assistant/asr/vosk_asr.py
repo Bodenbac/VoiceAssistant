@@ -27,6 +27,7 @@ class ASR:
         self.stream = None
         self.thread = None
         self.running = False
+        self.paused = False
         self.on_text = None
 
     # allow setting a custom callback function
@@ -38,7 +39,9 @@ class ASR:
 
         if status:
             print(status)
-        self.q.put(bytes(indata))
+        # Only queue audio data if not paused
+        if not self.paused:
+            self.q.put(bytes(indata))
 
     # start recognition
     def start(self):
@@ -47,7 +50,9 @@ class ASR:
             return
         self.running = True
 
+        print(f"[VoiceAssistant] Loading Vosk model from {self.model_path}...")
         self.model = Model(self.model_path)
+        print("[VoiceAssistant] Model loaded successfully. Initializing recognizer...")
         self.rec = KaldiRecognizer(self.model, self.sample_rate)
 
         sd.default.samplerate = self.sample_rate
@@ -66,6 +71,20 @@ class ASR:
         # create and start the background worker thread
         self.thread = threading.Thread(target=self.worker, daemon=True)
         self.thread.start()
+
+    # pause recognition (keep stream active but ignore input)
+    def pause(self):
+        self.paused = True
+
+    # resume recognition
+    def resume(self):
+        self.paused = False
+        # Clear the queue to avoid processing old audio
+        while not self.q.empty():
+            try:
+                self.q.get_nowait()
+            except queue.Empty:
+                break
 
     # stop recognition
     def stop(self):
