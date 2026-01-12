@@ -5,7 +5,9 @@ import threading
 import time
 from pathlib import Path
 
-from .config import BLOCKSIZE, MODEL_PATH_LARGE, MODEL_PATH_SMALL, SAMPLE_RATE, VOSK_MODEL_ARCHIVE_NAME, VOSK_MODEL_URL
+from .config import (BLOCKSIZE, MODEL_PATH_LARGE, MODEL_PATH_SMALL, SAMPLE_RATE,
+                      VOSK_MODEL_ARCHIVE_NAME_LARGE, VOSK_MODEL_URL_LARGE,
+                      VOSK_MODEL_ARCHIVE_NAME_SMALL, VOSK_MODEL_URL_SMALL)
 from .interfaces import IntentRecognizer, SpeechSynthesizer
 from .asr import ASR
 from .asr.model_downloader import ensure_vosk_model
@@ -13,20 +15,28 @@ from .tts import EspeakSynthesizer, PyttsxSynthesizer
 from .nlu.rule_based import SimpleRuleNLU
 from .dialogue.manager import SimpleDialogueManager
 
-TTS_OPTIONS = {
-    "e": ("espeak", "eSpeak NG"),
-    "p": ("pyttsx", "pyttsx3"),
-}
-DEFAULT_TTS_CHOICE = "e"
 
+# Options for selecting an ASR. Can be removed if we only want one ASR
 ASR_OPTIONS = {
     "l": ("large", "large model (1,800 MB)", MODEL_PATH_LARGE),
     "s": ("small", "small model (68 MB)", MODEL_PATH_SMALL),
 }
 DEFAULT_ASR_CHOICE = "s"
 
+# Options for selecting an TTS. May be deleted later on
+TTS_OPTIONS = {
+    "e": ("espeak", "eSpeak NG"),
+    "p": ("pyttsx", "pyttsx3"),
+}
+DEFAULT_TTS_CHOICE = "e"
 
+
+"""
+Determine which Text-to-Speech (TTS) backend to use.
+If none chosen, the default backend is selected automatically.
+"""
 def determine_tts_backend(default_choice: str = DEFAULT_TTS_CHOICE) -> tuple[str, str]:
+
     default_backend, default_label = TTS_OPTIONS[default_choice]
     if sys.stdin is None or not sys.stdin.isatty():
         print(f"[VoiceAssistant] No interactive terminal detected. Defaulting to {default_label}.")
@@ -50,6 +60,10 @@ def determine_tts_backend(default_choice: str = DEFAULT_TTS_CHOICE) -> tuple[str
         print(f"Unsupported option '{choice}'. Please choose one of: {supported}.")
 
 
+"""
+Determine which Automatic Speech Recognition (ASR) backend to use.
+If none chosen, the default backend is selected automatically.
+"""
 def determine_asr_model(default_choice: str = DEFAULT_ASR_CHOICE) -> tuple[str, str, str]:
     default_model, default_label, default_path = ASR_OPTIONS[default_choice]
     if sys.stdin is None or not sys.stdin.isatty():
@@ -74,6 +88,13 @@ def determine_asr_model(default_choice: str = DEFAULT_ASR_CHOICE) -> tuple[str, 
         print(f"Unsupported option '{choice}'. Please choose one of: {supported}.")
 
 
+"""
+Build and initialize the configured Text-to-Speech (TTS) backend.
+
+The backend is selected via `determine_tts_backend()`. If initialization
+of the requested backend fails, the function falls back to the pyttsx3
+backend to ensure TTS remains available.
+"""
 def build_tts() -> SpeechSynthesizer:
     backend, label = determine_tts_backend()
     print(f"[VoiceAssistant] Requested TTS backend: {backend} ({label}).")
@@ -90,24 +111,27 @@ def build_tts() -> SpeechSynthesizer:
         return PyttsxSynthesizer(language="en")
 
 
+"""
+Build and initialize the Automatic Speech Recognition (ASR) engine.
+
+This function ensures that the selected Vosk model is available locally
+(downloading it if necessary) and then constructs the ASR engine using
+the provided model path and audio configuration.
+"""
 def build_asr(model_choice: str, model_label: str, model_path: str) -> ASR:
     print(f"[VoiceAssistant] Selected ASR model: {model_label}.")
-    
-    # Check if model exists
-    model_dir = Path(model_path)
-    model_exists = model_dir.is_dir() and any(model_dir.iterdir())
-    
+
+    # Determine download URL and archive name based on model choice
     if model_choice == "small":
-        # For small model, just check if it exists
-        if not model_exists:
-            print(f"[VoiceAssistant] ERROR: Small model not found at {model_path}.")
-            print("[VoiceAssistant] Please download the small model manually and place it in the correct directory.")
-            sys.exit(1)
-        print(f"[VoiceAssistant] Small model found at {model_path}.")
+        download_url = VOSK_MODEL_URL_SMALL
+        archive_name = VOSK_MODEL_ARCHIVE_NAME_SMALL
     else:  # large model
-        # For large model, download if needed
-        ensure_vosk_model(model_path, VOSK_MODEL_URL, VOSK_MODEL_ARCHIVE_NAME)
-    
+        download_url = VOSK_MODEL_URL_LARGE
+        archive_name = VOSK_MODEL_ARCHIVE_NAME_LARGE
+
+    # Download if needed (works for both models)
+    ensure_vosk_model(model_path, download_url, archive_name)
+
     return ASR(model_path, SAMPLE_RATE, BLOCKSIZE)
 
 
