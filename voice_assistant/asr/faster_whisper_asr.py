@@ -17,16 +17,7 @@ class FasterWhisperASR:
 
     def __init__(self, model_size="base", sample_rate=16000, blocksize=8000,
                  device="cpu", compute_type="int8"):
-        """
-        Initialize Faster-Whisper ASR.
 
-        Args:
-            model_size: Model size (tiny, base, small, medium, large-v2, large-v3)
-            sample_rate: Audio sample rate in Hz (16000 recommended)
-            blocksize: Audio block size in samples
-            device: Device to run on ("cpu" or "cuda")
-            compute_type: Quantization type ("int8", "int16", "float32")
-        """
         self.model_size = model_size
         self.sample_rate = sample_rate
         self.blocksize = blocksize
@@ -76,12 +67,8 @@ class FasterWhisperASR:
             return
         self.running = True
 
-        print(f"[VoiceAssistant] Loading Faster-Whisper model '{self.model_size}'...")
-        print(f"[VoiceAssistant] First run will download model (~{self._get_model_size_mb()} MB). Please wait...")
-
         model_dir = self._resolve_model_dir()
         model_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[VoiceAssistant] Using model cache at: {model_dir}")
 
         # Load the Faster-Whisper model
         self.model = WhisperModel(
@@ -91,7 +78,7 @@ class FasterWhisperASR:
             download_root=str(model_dir),
         )
 
-        print("[VoiceAssistant] Model loaded successfully. Initializing audio stream...")
+        print("[Voice Assistant] ASR model loaded. Initializing audio stream...")
 
         # Configure audio input
         sd.default.samplerate = self.sample_rate
@@ -174,7 +161,7 @@ class FasterWhisperASR:
                     self._reset_speech_state()
                 continue
             except Exception as e:
-                print(f"[VoiceAssistant] Worker error: {e}")
+                print(f"[Voice Assistant] Worker error: {e}")
                 continue
 
     def _transcribe_buffer(self):
@@ -206,26 +193,14 @@ class FasterWhisperASR:
 
             # Call callback if text is not empty
             if text and self.on_text:
-                print(">>", text)
+                print("[User]", text)
                 self.on_text(text)
 
         except Exception as e:
-            print(f"[VoiceAssistant] Transcription error: {e}")
+            print(f"[Voice Assistant] Transcription error: {e}")
         finally:
             # Clear the buffer for next transcription
             self.audio_buffer.clear()
-
-    def _get_model_size_mb(self):
-        """Get approximate model size in MB."""
-        sizes = {
-            "tiny": "75",
-            "base": "145",
-            "small": "466",
-            "medium": "1500",
-            "large-v2": "3000",
-            "large-v3": "3000",
-        }
-        return sizes.get(self.model_size, "unknown")
 
     def _resolve_model_dir(self) -> Path:
         project_root = Path(__file__).resolve().parents[2]
