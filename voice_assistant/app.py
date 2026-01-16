@@ -101,7 +101,6 @@ def run() -> None:
     def on_text(txt: str) -> None:
         # Pause microphone during processing so that only one command is handled at a time
         asr.pause()
-        print("[Voice Assistant] Spoken text is being processed. Microphone deactivated.")
 
         try:
             intent = nlu.parse(txt)
@@ -117,7 +116,6 @@ def run() -> None:
             # Always resume microphone after processing (unless exiting)
             if not (intent and intent.name == "exit"):
                 asr.resume()
-                print("[Voice Assistant] Processing complete. Microphone activated.")
 
     asr.set_callback(on_text)
 

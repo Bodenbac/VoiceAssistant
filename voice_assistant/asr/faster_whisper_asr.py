@@ -4,232 +4,289 @@ import time
 from pathlib import Path
 
 import numpy as np
-
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
 
 class FasterWhisperASR:
     """
-    Faster-Whisper-based speech recognition.
-    Reads audio from microphone and transcribes using OpenAI Whisper models.
+    Speech recognition using Faster-Whisper.
+    Records audio from microphone and transcribes it using Whisper model.
     """
 
-    def __init__(self, model_size="base", sample_rate=16000, blocksize=8000,
-                 device="cpu", compute_type="int8"):
-
+    def __init__(self,
+                 model_size="base",
+                 sample_rate=16000,
+                 blocksize=8000,
+                 device="cpu",
+                 compute_type="int8"):
+        """
+        Initialize the ASR system.
+        """
+        # Model configuration
         self.model_size = model_size
         self.sample_rate = sample_rate
         self.blocksize = blocksize
         self.device = device
         self.compute_type = compute_type
-
         self.model = None
 
-        self.q = queue.Queue()
+        # Audio streaming
+        self.audio_queue = queue.Queue()
         self.stream = None
-        self.thread = None
+        self.worker_thread = None
         self.running = False
         self.paused = False
         self.on_text = None
 
-        # Audio buffer settings
-        self.max_buffer_duration = 15.0  # seconds, safety cap for long utterances
-        self.max_buffer_size = int(self.sample_rate * self.max_buffer_duration)
+        # Buffer for audio data
         self.audio_buffer = []
+        self.max_buffer_seconds = 15.0
 
-        # End-of-utterance detection
-        self.min_silence_duration = 2.0  # seconds of silence before processing
-        self.min_speech_duration = 0.4  # seconds of speech required
-        self.energy_threshold = 100.0  # RMS floor threshold for voice activity
-        self.min_energy_threshold = 50.0  # Lower bound for adaptive threshold
-        self.voice_multiplier = 3.0  # Noise floor multiplier for VAD
-        self.noise_floor = 0.0
-        self.noise_alpha = 0.95
-        self.speech_start_ts = None
-        self.last_voice_ts = None
+        # Voice detection settings
+        self.silence_duration = 2.0  # seconds of silence before transcribing
+        self.min_speech_duration = 0.4  # minimum speech length
+        self.energy_threshold = 80.0  # volume threshold for detecting voice
+
+        # Timing variables
+        self.speech_start_time = None
+        self.last_voice_time = None
+
 
     def set_callback(self, fn):
-        """Set callback function that receives recognized text."""
+        """
+        Set the callback function that receives the transcribed text.
+        """
         self.on_text = fn
 
-    def audio_callback(self, indata, frames, time_info, status):
-        """Called by sounddevice with new audio data."""
+
+    def audio_callback(self, indata, _frames, _time_info, status):
+        """
+        Called by sounddevice when new audio data is available.
+        _frames and _time_info are required by sounddevice but not used here.
+        """
         if status:
             print(status)
-        # Only queue audio data if not paused
+
+        # Add audio to queue if not paused
         if not self.paused:
-            self.q.put(bytes(indata))
+            self.audio_queue.put(bytes(indata))
+
 
     def start(self):
-        """Start recognition: load model and begin audio capture."""
+        """
+        Start the speech recognition system.
+        """
         if self.running:
             return
+
         self.running = True
 
-        model_dir = self._resolve_model_dir()
+        # Setup model directory
+        model_dir = self._get_model_directory()
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load the Faster-Whisper model
+        # Load Whisper model
+        print("[Voice Assistant] Loading ASR model...")
         self.model = WhisperModel(
             self.model_size,
             device=self.device,
             compute_type=self.compute_type,
             download_root=str(model_dir),
         )
+        print("[Voice Assistant] ASR model loaded. Starting audio stream...")
 
-        print("[Voice Assistant] ASR model loaded. Initializing audio stream...")
-
-        # Configure audio input
+        # Start microphone input stream
         sd.default.samplerate = self.sample_rate
-        kwargs = dict(
+        self.stream = sd.RawInputStream(
             samplerate=self.sample_rate,
             blocksize=self.blocksize,
             dtype="int16",
             channels=1,
             callback=self.audio_callback,
         )
-
-        # Create and start the microphone stream
-        self.stream = sd.RawInputStream(**kwargs)
         self.stream.start()
 
-        # Create and start the background worker thread
-        self.thread = threading.Thread(target=self.worker, daemon=True)
-        self.thread.start()
+        # Start background worker thread
+        self.worker_thread = threading.Thread(target=self.worker, daemon=True)
+        self.worker_thread.start()
+
 
     def pause(self):
-        """Pause recognition (keep stream active but ignore input)."""
+        """
+        Pause recognition temporarily.
+        """
         self.paused = True
 
+
     def resume(self):
-        """Resume recognition."""
+        """
+        Resume recognition after pause.
+        """
         self.paused = False
-        # Clear the queue to avoid processing old audio
-        while not self.q.empty():
+
+        # Clear old audio data
+        while not self.audio_queue.empty():
             try:
-                self.q.get_nowait()
+                self.audio_queue.get_nowait()
             except queue.Empty:
                 break
-        # Clear audio buffer as well
+
         self.audio_buffer.clear()
-        self._reset_speech_state()
+        self.speech_start_time = None
+        self.last_voice_time = None
+
 
     def stop(self):
-        """Stop recognition and cleanup resources."""
+        """
+        Stop recognition and cleanup.
+        """
         self.running = False
-        try:
-            if self.stream is not None:
+
+        # Close audio stream
+        if self.stream is not None:
+            try:
                 self.stream.stop()
                 self.stream.close()
-        except Exception:
-            pass
+            except Exception:
+                pass
+
         self.stream = None
 
+
     def worker(self):
-        """Background worker thread that processes audio and runs transcription."""
+        """
+        Background thread that processes audio and performs transcription.
+        """
         while self.running:
             try:
-                # Get audio data from queue (blocking with timeout)
-                data = self.q.get(timeout=0.1)
+                # Get audio data from queue (wait max 0.1 seconds)
+                data = self.audio_queue.get(timeout=0.1)
 
-                # Convert bytes to int16 numpy array
-                audio_int16 = np.frombuffer(data, dtype=np.int16)
+                # Convert bytes to numpy array
+                audio_data = np.frombuffer(data, dtype=np.int16)
 
-                now = time.monotonic()
-                if self._is_voice_active(audio_int16):
-                    if self.speech_start_ts is None:
-                        self.speech_start_ts = now
-                    self.last_voice_ts = now
-                    self.audio_buffer.extend(audio_int16)
+                current_time = time.monotonic()
+
+                # Check if voice is detected
+                if self._detect_voice(audio_data):
+                    # Mark when speech started
+                    if self.speech_start_time is None:
+                        self.speech_start_time = current_time
+                    self.last_voice_time = current_time
+                    self.audio_buffer.extend(audio_data)
                 else:
-                    if self.speech_start_ts is not None:
-                        # Keep trailing silence once speech has started
-                        self.audio_buffer.extend(audio_int16)
+                    # Keep silence after speech started (for context)
+                    if self.speech_start_time is not None:
+                        self.audio_buffer.extend(audio_data)
 
-                if self._should_transcribe(now):
+                # Check if we should transcribe now
+                if self._should_transcribe(current_time):
                     self._transcribe_buffer()
-                    self._reset_speech_state()
-                elif len(self.audio_buffer) >= self.max_buffer_size:
-                    # Safety cap to avoid unbounded memory growth
+                    self._reset_state()
+
+                # Safety check: transcribe if buffer is too long
+                max_buffer_size = int(self.sample_rate * self.max_buffer_seconds)
+                if len(self.audio_buffer) >= max_buffer_size:
                     self._transcribe_buffer()
-                    self._reset_speech_state()
+                    self._reset_state()
 
             except queue.Empty:
+                # No new audio data, check if we should transcribe
                 if self._should_transcribe(time.monotonic()):
                     self._transcribe_buffer()
-                    self._reset_speech_state()
+                    self._reset_state()
                 continue
+
             except Exception as e:
                 print(f"[Voice Assistant] Worker error: {e}")
                 continue
 
+
     def _transcribe_buffer(self):
-        """Transcribe the current audio buffer."""
+        """
+        Transcribe the audio in the buffer.
+        """
         if not self.audio_buffer:
             return
 
         try:
-            # Convert int16 buffer to float32 numpy array
+            # Convert buffer to float32 format for Whisper
             audio_int16 = np.array(self.audio_buffer, dtype=np.int16)
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
 
-            # Transcribe with Faster-Whisper
+            # Run transcription
             segments, info = self.model.transcribe(
                 audio_float32,
-                beam_size=1,  # Faster (greedy search)
-                vad_filter=True,  # Voice activity detection
+                beam_size=1,
+                vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=500),
-                language="en",  # Set to English for better performance
+                language="en",
             )
 
-            # Extract text from segments
+            # Collect text from all segments
             text_parts = []
             for segment in segments:
                 text_parts.append(segment.text.strip())
 
-            # Combine segments into full text
+            # Combine all text
             text = " ".join(text_parts).strip()
 
-            # Call callback if text is not empty
+            # Send text to callback
             if text and self.on_text:
                 print("[User]", text)
                 self.on_text(text)
 
         except Exception as e:
             print(f"[Voice Assistant] Transcription error: {e}")
+
         finally:
-            # Clear the buffer for next transcription
+            # Clear buffer for next transcription
             self.audio_buffer.clear()
 
-    def _resolve_model_dir(self) -> Path:
+
+    def _get_model_directory(self):
+        """
+        Get the directory where models are stored.
+        """
         project_root = Path(__file__).resolve().parents[2]
         return project_root / "models" / self.model_size
 
-    def _is_voice_active(self, audio_int16: np.ndarray) -> bool:
-        if audio_int16.size == 0:
-            return False
-        rms = np.sqrt(np.mean(audio_int16.astype(np.float32) ** 2))
-        adaptive_threshold = max(self.min_energy_threshold, self.noise_floor * self.voice_multiplier)
-        threshold = max(self.energy_threshold, adaptive_threshold)
-        is_voice = rms >= threshold
-        if not is_voice:
-            if self.noise_floor == 0.0:
-                self.noise_floor = rms
-            else:
-                self.noise_floor = (self.noise_alpha * self.noise_floor) + ((1.0 - self.noise_alpha) * rms)
-        return is_voice
 
-    def _should_transcribe(self, now: float) -> bool:
-        if self.speech_start_ts is None or self.last_voice_ts is None:
+    def _detect_voice(self, audio_data):
+        """
+        Check if audio contains voice based on energy level.
+        """
+        if audio_data.size == 0:
             return False
-        speech_elapsed = now - self.speech_start_ts
-        silence_elapsed = now - self.last_voice_ts
-        return (
-            silence_elapsed >= self.min_silence_duration
-            and speech_elapsed >= self.min_speech_duration
-        )
 
-    def _reset_speech_state(self) -> None:
-        self.speech_start_ts = None
-        self.last_voice_ts = None
+        # Calculate RMS (root mean square) as energy measure
+        rms = np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))
+
+        # Voice detected if energy is above threshold
+        return rms >= self.energy_threshold
+
+
+    def _should_transcribe(self, current_time):
+        """
+        Check if enough speech and silence has been recorded to transcribe.
+        """
+        # Need both speech start and last voice time
+        if self.speech_start_time is None or self.last_voice_time is None:
+            return False
+
+        # Calculate durations
+        speech_duration = current_time - self.speech_start_time
+        silence_duration = current_time - self.last_voice_time
+
+        # Transcribe if we have enough speech and enough silence
+        return (silence_duration >= self.silence_duration and
+                speech_duration >= self.min_speech_duration)
+
+
+    def _reset_state(self):
+        """
+        Reset speech detection state variables.
+        """
+        self.speech_start_time = None
+        self.last_voice_time = None
