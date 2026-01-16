@@ -1,6 +1,10 @@
+import os
+import time
 import unittest
+import uuid
 from unittest.mock import patch, MagicMock
 from typing import Any, Dict
+from datetime import datetime, timedelta, timezone
 
 from voice_assistant.apis.calendar import  RestCalendarClient
 
@@ -119,6 +123,35 @@ class TestRestCalendarClient(unittest.TestCase):
         with self.assertRaises(Exception) as ctx:
             self.client.list_events()
         self.assertIn("API error 503", str(ctx.exception))
+
+    def test_create_and_delete_multiple_events_real_api(self):
+        created_ids = []
+        base_time = datetime.now(timezone.utc) + timedelta(days=1)
+
+        for i in range(5):
+            start_time = (base_time + timedelta(minutes=30 * i)).strftime("%Y-%m-%dT%H:%M")
+            end_time = (base_time + timedelta(minutes=30 * i + 15)).strftime("%Y-%m-%dT%H:%M")
+            title = f"API Test {uuid.uuid4().hex[:8]} {i}"
+            entry = self.client.create_event(
+                title=title,
+                description="integration test event",
+                start_time=start_time,
+                end_time=end_time,
+                location="Test Suite"
+            )
+            created_ids.append(entry["id"])
+
+        for event_id in created_ids:
+            self.client.delete_event(event_id)
+            deleted = False
+            for _ in range(10):
+                try:
+                    self.client.get_event(event_id)
+                except Exception:
+                    deleted = True
+                    break
+                time.sleep(0.5)
+            self.assertTrue(deleted, f"event {event_id} was not deleted in time")
 
 
 if __name__ == "__main__":
