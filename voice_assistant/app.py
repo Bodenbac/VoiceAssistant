@@ -1,69 +1,61 @@
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
 
-from .config import BLOCKSIZE, MODEL_PATH, SAMPLE_RATE
+from .config import (
+    BLOCKSIZE,
+    MODEL,
+    SAMPLE_RATE,
+    WHISPER_COMPUTE_TYPE,
+    WHISPER_DEVICE,
+    WHISPER_MODEL_SIZES,
+)
 from .interfaces import IntentRecognizer, SpeechSynthesizer
-from .asr import ASR
-from .tts import EspeakSynthesizer, PyttsxSynthesizer
+from .asr.faster_whisper_asr import FasterWhisperASR
+from .tts import PyttsxSynthesizer
 from .nlu.rule_based import SimpleRuleNLU
 from .dialogue.manager import SimpleDialogueManager
 
-TTS_OPTIONS = {
-    "e": ("espeak", "eSpeak NG"),
-    "p": ("pyttsx", "pyttsx3"),
-}
-DEFAULT_TTS_CHOICE = "e"
+
+def get_model_info(model_size: str) -> tuple[str, int]:
 
 
-def determine_tts_backend(default_choice: str = DEFAULT_TTS_CHOICE) -> tuple[str, str]:
-    default_backend, default_label = TTS_OPTIONS[default_choice]
-    if sys.stdin is None or not sys.stdin.isatty():
-        print(f"[VoiceAssistant] No interactive terminal detected. Defaulting to {default_label}.")
-        return default_backend, default_label
 
-    opts = ", ".join(f"{key} ({label})" for key, (_, label) in TTS_OPTIONS.items())
-    prompt = f"Select TTS backend [{opts}] [default: {default_choice}]: "
-    while True:
-        try:
-            choice = input(prompt).strip().lower()
-        except EOFError:
-            choice = ""
-        key = choice or default_choice
-        if key in TTS_OPTIONS:
-            backend, label = TTS_OPTIONS[key]
-            return backend, label
-        supported = ", ".join(TTS_OPTIONS)
-        print(f"Unsupported option '{choice}'. Please choose one of: {supported}.")
+    key = (model_size or "").strip().lower()
+    info = WHISPER_MODEL_SIZES.get(key)
+    if not info:
+        supported = ", ".join(sorted(WHISPER_MODEL_SIZES.keys()))
+        raise ValueError(f"Unsupported ASR model '{model_size}'. Supported: {supported}.")
+    return info[0], info[2]
 
 
+# build and return the ASR instance
 def build_tts() -> SpeechSynthesizer:
-    backend, label = determine_tts_backend()
-    print(f"[VoiceAssistant] Requested TTS backend: {backend} ({label}).")
     try:
-        if backend == "espeak":
-            synth = EspeakSynthesizer()
-            print("[VoiceAssistant] eSpeak NG TTS initialized successfully.")
-            return synth
-        synth = PyttsxSynthesizer(language="en")
-        print("[VoiceAssistant] pyttsx3 initialized successfully.")
-        return synth
-    except Exception as exc:
-        print(f"[VoiceAssistant] Failed to initialize '{backend}' backend: {exc}. Falling back to pyttsx3.")
         return PyttsxSynthesizer(language="en")
+    except Exception as exc:
+        print(f"[Voice Assistant] Failed to initialize pyttsx3: {exc}.")
+        raise
 
 
-def build_asr() -> ASR:
-    print("[VoiceAssistant] Using ASR backend: vosk_asr (simple demo recognizer).")
-    return ASR(MODEL_PATH, SAMPLE_RATE, BLOCKSIZE)
+# build and return the ASR instance
+def build_asr(model_size: str) -> FasterWhisperASR:
+    return FasterWhisperASR(
+        model_size=model_size,
+        sample_rate=SAMPLE_RATE,
+        blocksize=BLOCKSIZE,
+        device=WHISPER_DEVICE,
+        compute_type=WHISPER_COMPUTE_TYPE,
+    )
 
 
 def run() -> None:
-    tts = build_tts()
-    nlu: IntentRecognizer = SimpleRuleNLU()
-    dm = SimpleDialogueManager()
+    # 1. line in console: Display ASR model info
+    model_name, model_size_mb = get_model_info(MODEL)
+    print(f'[ASR] Selected model: Faster-Whisper "{model_name}" model ({model_size_mb}mb)')
 
     asr = build_asr()
     # is_speaking = False  clever fix but doesnt work
@@ -90,8 +82,15 @@ def run() -> None:
             time.sleep(0.3)
             asr.stop()
             sys.exit(0)
+    # 2. line in console: Load ASR (downloads automatically if missing)
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    print(f'[ASR] Loading "{model_name}" model (downloads if needed)...')
 
-    asr.set_callback(on_text)
+    # 3. line in console: Build and start ASR
+    asr = build_asr(model_name)
+
+    nlu: IntentRecognizer = SimpleRuleNLU()
+    dm = SimpleDialogueManager()
 
     start_event = threading.Event()
     start_error: list[Exception] = []
@@ -106,19 +105,48 @@ def run() -> None:
 
     threading.Thread(target=bootstrap_asr, daemon=True).start()
 
-    tts.speak("Assistant is starting. Loading speech model. Please wait.")
-
-    if not start_event.wait(timeout=30):
-        print("[VoiceAssistant] ASR startup timed out after 30 seconds.")
-        tts.speak("The speech model did not load in time. Please try restarting the assistant.")
+    # 4. line in console: Wait for ASR to finish loading
+    if not start_event.wait(timeout=90):
+        print("[Voice Assistant] ASR startup timed out after 90 seconds.")
         return
 
     if start_error:
-        print("Failed to start ASR:", start_error[0])
-        tts.speak("Failed to load the speech model.")
+        print(f"[Voice Assistant] Failed to start ASR: {start_error[0]}")
         return
 
+    print()
+
+    # 5. line in console: Now initialize TTS
+    print("[TTS] Selected model: Pyttsx3")
+    tts = build_tts()
+    print("[TTS] Model initialized successfully")
+    print()
+
+    # 6. line in console: Setup callback
+    def on_text(txt: str) -> None:
+        # Pause microphone during processing so that only one command is handled at a time
+        asr.pause()
+
+        try:
+            intent = nlu.parse(txt)
+            response = dm.handle(intent, txt)
+            if response:
+                tts.speak(response)
+            if intent and intent.name == "exit":
+                # small delay to allow TTS to finish
+                time.sleep(0.3)
+                asr.stop()
+                sys.exit(0)
+        finally:
+            # Always resume microphone after processing (unless exiting)
+            if not (intent and intent.name == "exit"):
+                asr.resume()
+
+    asr.set_callback(on_text)
+
+    # 7. line in console: Ready, user can start speakin
     tts.speak("Done! Ready to go.")
+    print("[Voice Assistant] Microphone activated. Listening for commands...")
 
     try:
         while True:

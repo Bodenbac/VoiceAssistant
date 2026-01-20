@@ -1,3 +1,3 @@
-from .vosk_asr import ASR
+from .faster_whisper_asr import FasterWhisperASR
 
-__all__ = ["ASR"]
+__all__ = ["FasterWhisperASR"]

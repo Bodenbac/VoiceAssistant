@@ -27,7 +27,7 @@ class PyttsxSynthesizer:
         self.pref_voice_name = (voice_name or "").lower() or None
         self.pref_rate = rate
 
-        # trigger init to validate environment
+        # trigger init to set environment
         self.init()
 
     # initialize pyttsx3 engine
@@ -45,6 +45,7 @@ class PyttsxSynthesizer:
         self.engine.setProperty("volume", 1.0)
 
         # handle windows SAPI specifics
+        # might be different for linux/mac (docker containers etc)
         if wincl and sys.platform.startswith("win"):
             try:
                 self.sapi_voice = wincl.Dispatch("SAPI.SpVoice")
@@ -61,7 +62,7 @@ class PyttsxSynthesizer:
                 return False
             if lang_blob is None:
                 return False
-            # pyttsx3 often exposes languages as list[bytes]
+            # handle list/tuple of languages
             if isinstance(lang_blob, (list, tuple)):
                 for it in lang_blob:
                     s = (
@@ -184,6 +185,7 @@ class PyttsxSynthesizer:
     def speak(self, text: str) -> None:
         if not text:
             return
+        print(f'[Voice Assistant] "{text}"')
         try:
             if self.sapi_voice is not None and self.sapi_output_bound:
                 self.sapi_voice.Speak(text)
