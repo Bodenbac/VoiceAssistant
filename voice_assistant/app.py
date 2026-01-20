@@ -57,6 +57,31 @@ def run() -> None:
     model_name, model_size_mb = get_model_info(MODEL)
     print(f'[ASR] Selected model: Faster-Whisper "{model_name}" model ({model_size_mb}mb)')
 
+    asr = build_asr()
+    # is_speaking = False  clever fix but doesnt work
+
+    def on_text(txt: str) -> None:
+        is_speaking = False
+        if is_speaking:
+            return
+        
+        intent = nlu.parse(txt)
+        response = dm.handle(intent, txt)
+        if response:
+            is_speaking = True
+            try:
+                asr.stop() # stupid fix but works
+                tts.speak(response)
+                asr.start()
+            except Exception as e:
+                print("THIS FUCKING PIECE OF GARBAGE DOES NOT WORK: ,", e)
+            finally:
+                is_speaking=False
+        if intent and intent.name == "exit":
+            # small delay to allow TTS to finish
+            time.sleep(0.3)
+            asr.stop()
+            sys.exit(0)
     # 2. line in console: Load ASR (downloads automatically if missing)
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     print(f'[ASR] Loading "{model_name}" model (downloads if needed)...')
