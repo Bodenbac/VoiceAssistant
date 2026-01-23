@@ -34,13 +34,25 @@ class SimpleRuleNLU(IntentRecognizer):
 
     def get_weather_intent(self, text: str) -> Optional[Intent]:
         slots = {}
-        if "tomorrow" in text.lower():
+        lower_text = text.lower()
+
+        # Time/day slot extraction
+        if "tomorrow" in lower_text:
             slots["day"] = 1
-        elif "today" in text.lower():
+        elif "today" in lower_text:
             slots["day"] = 0
-        elif "yesterday" in text.lower():
+        elif "yesterday" in lower_text:
             slots["day"] = -1
-        m = re.search(r"after\s+(\d+)\s+day", text.lower())
+        m = re.search(r"after\s+(\d+)\s+day", lower_text)
         if m:
             slots["day"] = int(m.group(1))
+
+        # Location slot extraction
+        loc_match = re.search(
+            r"\b(?:in|at)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?=\b(?:tomorrow|today|yesterday|after)\b|[?.!,]|$)",
+            text,
+            re.IGNORECASE,
+        )
+        if loc_match:
+            slots["location"] = loc_match.group(1).strip()
         return Intent(name="weather_query", slots=slots)

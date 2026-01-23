@@ -20,9 +20,8 @@ from .nlu.rule_based import SimpleRuleNLU
 from .dialogue.manager import SimpleDialogueManager
 
 
+# get model info. used for logging purposes
 def get_model_info(model_size: str) -> tuple[str, int]:
-
-
 
     key = (model_size or "").strip().lower()
     info = WHISPER_MODEL_SIZES.get(key)
@@ -30,15 +29,6 @@ def get_model_info(model_size: str) -> tuple[str, int]:
         supported = ", ".join(sorted(WHISPER_MODEL_SIZES.keys()))
         raise ValueError(f"Unsupported ASR model '{model_size}'. Supported: {supported}.")
     return info[0], info[2]
-
-
-# build and return the ASR instance
-def build_tts() -> SpeechSynthesizer:
-    try:
-        return PyttsxSynthesizer(language="en")
-    except Exception as exc:
-        print(f"[Voice Assistant] Failed to initialize pyttsx3: {exc}.")
-        raise
 
 
 # build and return the ASR instance
@@ -52,12 +42,20 @@ def build_asr(model_size: str) -> FasterWhisperASR:
     )
 
 
+# build and return the TTS instance
+def build_tts() -> SpeechSynthesizer:
+    try:
+        return PyttsxSynthesizer(language="en")
+    except Exception as exc:
+        print(f"[Voice Assistant] Failed to initialize pyttsx3: {exc}.")
+        raise
+
+
 def run() -> None:
     # 1. line in console: Display ASR model info
     model_name, model_size_mb = get_model_info(MODEL)
     print(f'[ASR] Selected model: Faster-Whisper "{model_name}" model ({model_size_mb}mb)')
 
-    asr = build_asr()
     # is_speaking = False  clever fix but doesnt work
 
     def on_text(txt: str) -> None:

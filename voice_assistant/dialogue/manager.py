@@ -72,7 +72,7 @@ class SimpleDialogueManager(DialogueManagerIF):
         return response
 
 
-    def create_weather_response(self, intent, raw_text):
+    def create_weather_response(self):
 
         location = self.state.slots.get("location", "Marburg")
         day_index = self.state.slots.get("day", 0)
