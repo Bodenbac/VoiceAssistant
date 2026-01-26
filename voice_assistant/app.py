@@ -121,22 +121,37 @@ def run() -> None:
     print()
 
     # 6. line in console: Setup callback
+    # 6. line in console: Setup callback
     def on_text(txt: str) -> None:
-        # Pause microphone during processing so that only one command is handled at a time
+        # Pause microphone during processing
         asr.pause()
 
         try:
+            # --- EVALUATION LOGS ---
+            print("\n" + "="*30)
+            print(f"Transcription: {txt}")
+
             intent = nlu.parse(txt)
+            
+            if intent:
+                print(f"Intent: {intent.name}")
+                print(f"Slots:  {intent.slots}")
+            else:
+                print("No Intent Detected")
+
             response = dm.handle(intent, txt)
+            
             if response:
+                print(f"Response: {response}")
+                print("="*30 + "\n")
                 tts.speak(response)
+            # -----------------------
+
             if intent and intent.name == "exit":
-                # small delay to allow TTS to finish
                 time.sleep(0.3)
                 asr.stop()
                 sys.exit(0)
         finally:
-            # Always resume microphone after processing (unless exiting)
             if not (intent and intent.name == "exit"):
                 asr.resume()
 
