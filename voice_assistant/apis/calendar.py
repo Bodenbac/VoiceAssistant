@@ -107,6 +107,11 @@ class RestCalendarClient(CalendarClient):
     def list_events(self) -> Dict[str, Any]:
         response = requests.get(self.base_url)
         if response.status_code == 200:
-            return response.json()["entries"]
+            data = response.json()
+            # API returns list directly, not wrapped in "entries" key
+            if isinstance(data, list):
+                return data
+            # But handle both formats for compatibility
+            return data.get("entries", data)
         else:
             raise Exception(f"API error {response.status_code}: {response.text}")
