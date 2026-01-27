@@ -51,9 +51,10 @@ def build_tts() -> SpeechSynthesizer:
         raise
 
 
-def run() -> None:
+def run(model_override: str | None = None) -> None:
     # 1. line in console: Display ASR model info
-    model_name, model_size_mb = get_model_info(MODEL)
+    model_choice = (model_override or MODEL)
+    model_name, model_size_mb = get_model_info(model_choice)
     print(f'[ASR] Selected model: Faster-Whisper "{model_name}" model ({model_size_mb}mb)')
 
     # is_speaking = False  clever fix but doesnt work
@@ -104,8 +105,9 @@ def run() -> None:
     threading.Thread(target=bootstrap_asr, daemon=True).start()
 
     # 4. line in console: Wait for ASR to finish loading
-    if not start_event.wait(timeout=90):
-        print("[Voice Assistant] ASR startup timed out after 90 seconds.")
+    from .config import ASR_STARTUP_TIMEOUT_SECONDS
+    if not start_event.wait(timeout=ASR_STARTUP_TIMEOUT_SECONDS):
+        print(f"[Voice Assistant] ASR startup timed out after {ASR_STARTUP_TIMEOUT_SECONDS} seconds.")
         return
 
     if start_error:

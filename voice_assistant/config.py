@@ -16,3 +16,6 @@ WHISPER_MODEL_SIZES = {
 WHISPER_DEFAULT_MODEL = MODEL
 WHISPER_DEVICE = "cpu"  # cuda not possible on AMD GPU
 WHISPER_COMPUTE_TYPE = "int8"  # CPU optimization (int8, int16, float32)
+
+# Allow more time for large model downloads/initialization.
+ASR_STARTUP_TIMEOUT_SECONDS = 90

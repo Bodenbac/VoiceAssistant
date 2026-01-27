@@ -23,6 +23,8 @@ Install dependencies
 
 Run the assistant
 - `python -m voice_assistant`
+- Use a larger ASR model for a single run: `python -m voice_assistant --asr-model medium`
+- Supported sizes: `tiny`, `base`, `small`, `medium`
 
 ## Project Structure
 
