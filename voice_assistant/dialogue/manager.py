@@ -22,6 +22,7 @@ class DialogueState:
         self.last_location: Optional[str] = None  # for weather queries like "what about there?"
         self.last_created_event_id: Optional[int] = None  # stores last event we created
         self.last_queried_events: list = []  # list of events from last query
+        self.last_weather_day: Optional[int] = None
 
     def reset(self):
         self.active_intent = None
@@ -40,6 +41,17 @@ class SimpleDialogueManager(DialogueManagerIF):
             print("NO INTENT FOUND!")
             return ""
 
+        # handle follow-up replies for missing slots in create flow
+        if self.state.active_intent == "create_event" and self.state.slots.get("awaiting"):
+            follow_up_response = self._handle_create_followup(intent, raw_text)
+            if follow_up_response is not None:
+                return follow_up_response
+        # handle follow-up replies for missing slots in update flow
+        if self.state.active_intent == "update_event" and self.state.slots.get("awaiting"):
+            follow_up_response = self._handle_update_followup(intent, raw_text)
+            if follow_up_response is not None:
+                return follow_up_response
+
         # save the current intent slots before updating state
         # (we'll need this for yes/no questions)
         current_intent_slots = intent.slots.copy()
@@ -52,13 +64,15 @@ class SimpleDialogueManager(DialogueManagerIF):
         else:
             self.state.active_intent = intent.name
             self.state.slots = intent.slots.copy()
+        if "location" in intent.slots and intent.slots.get("location"):
+            self.state.last_location = intent.slots.get("location")
 
         # -------------------------
         # 2) Route intent
         # -------------------------
         if intent.name == "weather_query":
             # pass current intent slots for yes/no question detection
-            response = self.create_weather_response(current_intent_slots)
+            response = self.create_weather_response(current_intent_slots, raw_text)
 
         elif intent.name in ["create_event", "list_events", "update_event", "delete_event"]:
             response = self.handle_calendar_intent(intent.name)
@@ -84,10 +98,21 @@ class SimpleDialogueManager(DialogueManagerIF):
         return response
 
 
-    def create_weather_response(self, current_intent_slots):
+    def create_weather_response(self, current_intent_slots, raw_text: str):
+
+        if self.state.slots.get("location"):
+            self.state.last_location = self.state.slots.get("location")
+        elif raw_text and "there" in raw_text.lower() and self.state.last_location:
+            self.state.slots["location"] = self.state.last_location
 
         location = self.state.slots.get("location", "Marburg")
-        day_index = self.state.slots.get("day", 0)
+        if "day" in self.state.slots:
+            day_index = self.state.slots.get("day", 0)
+            self.state.last_weather_day = day_index
+        elif self.state.last_weather_day is not None:
+            day_index = self.state.last_weather_day
+        else:
+            day_index = 0
 
         weather = self.weather_client.current(location)
         forecast = weather.get("forecast", [])
@@ -172,13 +197,26 @@ class SimpleDialogueManager(DialogueManagerIF):
         # first get all the info we need from the slots
         # slots are basically the extracted Information from what the user said
         title = self.state.slots.get("title")
-        day_offset = self.state.slots.get("day", 0)  # defaults to today
-        time_str = self.state.slots.get("time", "09:00")  # default time is 9am
-        location = self.state.slots.get("location", "")
+        day_offset = self.state.slots.get("day")
+        time_str = self.state.slots.get("time")
+        location = self.state.slots.get("location")
 
         # we NEED a title, otherwise we Cant create anything
         if not title:
+            self.state.slots["awaiting"] = "title"
             return "What should I call this appointment?"
+
+        if day_offset is None:
+            self.state.slots["awaiting"] = "day"
+            return "When is the appointment?"
+
+        if not time_str:
+            self.state.slots["awaiting"] = "time"
+            return "What time is it?"
+
+        if not location:
+            self.state.slots["awaiting"] = "location"
+            return "Where is it?"
 
         # calculate the actual date from the day offset
         # so if day_offset=1 and today is monday, target_date will be tuesday
@@ -214,6 +252,144 @@ class SimpleDialogueManager(DialogueManagerIF):
         day_phrase = self._naturalize_day(day_offset)
         loc_phrase = f" in {location}" if location else ""
         return f"Created appointment '{title}' for {day_phrase} at {time_str}{loc_phrase}."
+
+    def _handle_create_followup(self, intent: Intent, raw_text: str) -> Optional[str]:
+        awaiting = self.state.slots.get("awaiting")
+        text = (raw_text or "").strip()
+
+        if awaiting == "title":
+            title = text.strip(" .!?\"'")
+            if not title:
+                return "What should I call this appointment?"
+            self.state.slots["title"] = title
+            self.state.slots.pop("awaiting", None)
+            return self._handle_create_event()
+
+        if awaiting == "day":
+            day_offset = intent.slots.get("day")
+            if day_offset is None:
+                day_offset = self._parse_day_offset(text)
+            if day_offset is None:
+                return "When should I schedule it?"
+            self.state.slots["day"] = day_offset
+            self.state.slots.pop("awaiting", None)
+            return self._handle_create_event()
+
+        if awaiting == "time":
+            time_str = intent.slots.get("time")
+            if not time_str:
+                time_str = self._parse_time(text)
+            if not time_str:
+                return "What time should I set?"
+            self.state.slots["time"] = time_str
+            self.state.slots.pop("awaiting", None)
+            return self._handle_create_event()
+
+        if awaiting == "location":
+            location = intent.slots.get("location")
+            if not location:
+                location = self._parse_location(text)
+            if not location:
+                return "Where should it take place?"
+            self.state.slots["location"] = location
+            self.state.slots.pop("awaiting", None)
+            return self._handle_create_event()
+
+        return None
+
+    def _parse_time(self, text: str) -> Optional[str]:
+        import re
+        lower_text = (text or "").lower()
+        time_match = re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?\b", lower_text)
+        if not time_match:
+            time_match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)\b", lower_text)
+        if not time_match:
+            time_match = re.search(r"\b(\d{1,2})\s*o'?clock\b", lower_text)
+        if not time_match:
+            time_match = re.search(r"\b(\d{1,2})[.:](\d{2})\b", lower_text)
+        if not time_match:
+            time_match = re.search(r"\b(\d{1,2})\b", lower_text)
+        if not time_match:
+            return None
+        hour = int(time_match.group(1))
+        minute = time_match.group(2) or "00"
+        meridiem = time_match.group(3) if len(time_match.groups()) >= 3 else None
+        if meridiem:
+            meridiem = meridiem.replace(".", "")
+        if meridiem and 'p' in meridiem and hour < 12:
+            hour += 12
+        elif meridiem and 'a' in meridiem and hour == 12:
+            hour = 0
+        return f"{hour:02d}:{minute}"
+
+    def _parse_day_offset(self, text: str) -> Optional[int]:
+        import re
+        lower_text = (text or "").lower()
+        if "tomorrow" in lower_text:
+            return 1
+        if "today" in lower_text:
+            return 0
+        if "yesterday" in lower_text:
+            return -1
+
+        # day of week
+        days = {
+            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+            "friday": 4, "saturday": 5, "sunday": 6
+        }
+        for day_name, day_num in days.items():
+            if day_name in lower_text:
+                today = datetime.now().weekday()
+                offset = (day_num - today) % 7
+                if offset == 0:
+                    offset = 7
+                return offset
+
+        # specific date like "12th of January"
+        match = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(\w+)", text, re.IGNORECASE)
+        if not match:
+            return None
+        day = int(match.group(1))
+        month_str = match.group(2).lower()
+        months = {
+            "january": 1, "february": 2, "march": 3, "april": 4,
+            "may": 5, "june": 6, "july": 7, "august": 8,
+            "september": 9, "october": 10, "november": 11, "december": 12
+        }
+        month = months.get(month_str)
+        if not month:
+            return None
+        try:
+            today = datetime.now()
+            target = datetime(today.year, month, day)
+            if target < today:
+                target = datetime(today.year + 1, month, day)
+            return (target.date() - today.date()).days
+        except ValueError:
+            return None
+
+    def _parse_location(self, text: str) -> Optional[str]:
+        import re
+        loc_match = re.search(
+            r"\b(?:in|at|to)\s+(?:the\s+)?(?:location\s+)?([a-zA-Z][a-zA-Z0-9\s\-]+)\b",
+            text,
+            re.IGNORECASE,
+        )
+        if loc_match:
+            return loc_match.group(1).strip()
+        return text.strip(" .!?\"'") or None
+
+    def _normalize_title(self, title: Optional[str]) -> str:
+        if not title:
+            return ""
+        t = title.strip().lower()
+        if t.startswith("my "):
+            t = t[3:].strip()
+        elif t.startswith("the "):
+            t = t[4:].strip()
+        if t.endswith(" appointment"):
+            t = t[: -len(" appointment")].strip()
+        return t
 
     def _handle_list_events(self) -> str:
         """
@@ -258,6 +434,15 @@ class SimpleDialogueManager(DialogueManagerIF):
             if not events:
                 day_phrase = self._naturalize_day(day_offset)
                 return f"You have no appointments {day_phrase}."
+
+        # if user asked for next appointment, pick the soonest by start time
+        if self.state.slots.get("list_mode") == "next":
+            next_event = self._get_next_event(events)
+            if not next_event:
+                return "You have no upcoming appointments."
+            time_part = next_event.get("start_time", "").split("T")[1] if "T" in next_event.get("start_time", "") else ""
+            loc_part = f" in {next_event.get('location')}" if next_event.get('location') else ""
+            return f"Your next appointment is '{next_event.get('title')}' at {time_part}{loc_part}."
 
         # format the response depending on how many events there are
         if len(events) == 1:
@@ -336,23 +521,84 @@ class SimpleDialogueManager(DialogueManagerIF):
         if not event_id and self.state.slots.get("reference") == "previous":
             event_id = self.state.last_created_event_id
 
+        # if they referenced a specific day, find the appointment on that day
+        if not event_id and "day" in self.state.slots:
+            day_offset = self.state.slots.get("day")
+            try:
+                events = self.calendar_client.list_events()
+            except Exception as e:
+                return f"Sorry, I couldn't retrieve your appointments: {e}"
+
+            target_date = (datetime.now() + timedelta(days=day_offset)).date()
+            matching = []
+            for event in events:
+                event_date_str = event.get("start_time", "").split("T")[0]
+                try:
+                    event_date = datetime.strptime(event_date_str, "%Y-%m-%d").date()
+                except Exception:
+                    continue
+                if event_date == target_date:
+                    matching.append(event)
+
+            # save for possible follow-ups
+            self.state.last_queried_events = matching
+
+            if not matching:
+                day_phrase = self._naturalize_day(day_offset)
+                return f"You have no appointments {day_phrase}."
+            if len(matching) == 1:
+                event_id = matching[0].get("id")
+            else:
+                day_phrase = self._naturalize_day(day_offset)
+                return f"I found {len(matching)} appointments {day_phrase}. Which one should I update?"
+
         # if they said "my appointment tomorrow" we can use the last query results
         if not event_id and self.state.last_queried_events:
             event_id = self.state.last_queried_events[0].get("id")
 
+        # try to resolve by title if provided
+        if not event_id and "title" in self.state.slots:
+            title_to_find = self._normalize_title(self.state.slots.get("title"))
+            if title_to_find:
+                if self.state.last_queried_events:
+                    matching_events = [
+                        e for e in self.state.last_queried_events
+                        if title_to_find in e.get("title", "").lower()
+                    ]
+                else:
+                    try:
+                        all_events = self.calendar_client.list_events()
+                        matching_events = [
+                            e for e in all_events
+                            if title_to_find in e.get("title", "").lower()
+                        ]
+                    except Exception:
+                        matching_events = []
+
+                if len(matching_events) == 1:
+                    event_id = matching_events[0].get("id")
+                elif len(matching_events) > 1:
+                    return f"Found {len(matching_events)} appointments with that title. Can you be more specific?"
+                else:
+                    return f"Couldn't find an appointment with title '{self.state.slots.get('title')}'."
+
         if not event_id:
+            self.state.slots["awaiting"] = "title"
             return "Which appointment should I update?"
 
         # build the update dictionary with whatever fields the user wants to change
         updates = {}
         if "location" in self.state.slots:
             updates["location"] = self.state.slots["location"]
-        if "title" in self.state.slots:
+        if self.state.slots.get("update_field") == "title" and "title" in self.state.slots:
             updates["title"] = self.state.slots["title"]
         # could add more fields here like time or description
 
         if not updates:
             # user didnt specify what to change
+            if self.state.slots.get("update_field") == "location":
+                self.state.slots["awaiting"] = "location"
+                return "What is the new location?"
             return "What should I change about the appointment?"
 
         # send the update to the API
@@ -364,6 +610,46 @@ class SimpleDialogueManager(DialogueManagerIF):
         # tell user what we changed
         changes = ", ".join([f"{k} to '{v}'" for k, v in updates.items()])
         return f"Updated appointment: changed {changes}."
+
+    def _handle_update_followup(self, intent: Intent, raw_text: str) -> Optional[str]:
+        awaiting = self.state.slots.get("awaiting")
+        text = (raw_text or "").strip()
+
+        if awaiting == "title":
+            title = text.strip(" .!?\"'")
+            if not title:
+                return "Which appointment should I update?"
+            self.state.slots["title"] = title
+            self.state.slots.pop("awaiting", None)
+            return self._handle_update_event()
+
+        if awaiting == "location":
+            location = intent.slots.get("location") or self._parse_location(text)
+            if not location:
+                return "Where should it take place?"
+            self.state.slots["location"] = location
+            self.state.slots.pop("awaiting", None)
+            return self._handle_update_event()
+
+        return None
+
+    def _get_next_event(self, events: list) -> Optional[dict]:
+        parsed = []
+        now = datetime.now()
+        for event in events:
+            start = event.get("start_time", "")
+            try:
+                dt = datetime.strptime(start, "%Y-%m-%dT%H:%M")
+            except Exception:
+                continue
+            parsed.append((dt, event))
+        if not parsed:
+            return None
+        parsed.sort(key=lambda item: item[0])
+        for dt, event in parsed:
+            if dt >= now:
+                return event
+        return parsed[0][1]
 
     def _naturalize_day(self, day_offset: int) -> str:
         """

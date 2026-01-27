@@ -36,9 +36,9 @@ class SimpleRuleNLU(IntentRecognizer):
         if re.search(r"\b(exit|quit|stop|close|goodbye)\b", t):
             return Intent(name="exit", slots={})
 
-        # handle follow-up queries like "what about tomorrow?"
+        # handle follow-up queries like "what about tomorrow?" or "and in Marburg"
         # assumes they're continuing previous weather conversation
-        if re.search(r"\b(tomorrow|today|then|that day|yesterday)\b", t):
+        if re.search(r"\b(tomorrow|today|then|that day|yesterday|and in|in\s+[a-zA-Z])\b", t):
             return self.get_weather_intent(text)
 
         # if nothing matches, return fallback intent
@@ -90,6 +90,14 @@ class SimpleRuleNLU(IntentRecognizer):
             )
             if loc_match:
                 slots["location"] = loc_match.group(1).strip()
+            else:
+                follow_match = re.search(
+                    r"\b(?:and\s+then|and)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?:[?.!,]|$)",
+                    text,
+                    re.IGNORECASE,
+                )
+                if follow_match:
+                    slots["location"] = follow_match.group(1).strip()
 
         return Intent(name="weather_query", slots=slots)
 
@@ -103,7 +111,11 @@ class SimpleRuleNLU(IntentRecognizer):
 
         # First figure out what action the user wants to do
         # checking for common verbs that indicate create/delete/update/list
-        if re.search(r"\b(add|create|schedule|book|make)\b", lower_text):
+        if re.search(r"\b(change|update|modify|move)\b", lower_text) and re.search(r"\b(place|location)\b", lower_text):
+            slots["action"] = "update"
+        elif re.search(r"\b(call this appointment|name this appointment)\b", lower_text):
+            slots["action"] = "create"
+        elif re.search(r"\b(add|create|schedule|book|make)\b", lower_text):
             slots["action"] = "create"
         elif re.search(r"\b(delete|remove|cancel)\b", lower_text):
             slots["action"] = "delete"
@@ -115,6 +127,9 @@ class SimpleRuleNLU(IntentRecognizer):
             # if we cant figure it out, assume they want to list events
             slots["action"] = "list"
 
+        if slots.get("action") == "list" and re.search(r"\b(next|upcoming)\s+appointment\b", lower_text):
+            slots["list_mode"] = "next"
+
         # extract when the event is (day offset from today)
         # handles "tomorrow", "today", specific days like "Friday", or dates like "12th of january"
         if "tomorrow" in lower_text:
@@ -124,42 +139,82 @@ class SimpleRuleNLU(IntentRecognizer):
         elif "yesterday" in lower_text:
             slots["day"] = -1
         else:
-            # try to parse day of week first (Friday, Monday, etc.)
-            day_offset = self._parse_day_of_week(lower_text)
-            if day_offset is not None:
-                slots["day"] = day_offset
+            # try specific dates like "12th of January" first
+            date_offset = self._parse_specific_date(text)
+            if date_offset is not None:
+                slots["day"] = date_offset
             else:
-                # if that fails, try specific dates like "12th of January"
-                date_offset = self._parse_specific_date(text)
-                if date_offset is not None:
-                    slots["day"] = date_offset
+                # fall back to day of week (Friday, Monday, etc.)
+                day_offset = self._parse_day_of_week(lower_text)
+                if day_offset is not None:
+                    slots["day"] = day_offset
 
         # extract the appointment title
         # looks for patterns like "titled Meeting" or "called Conference"
         title_match = re.search(
-            r"\b(?:titled|called|named)\s+(['\"]?)([a-zA-Z0-9][^'\",.?!]*?)\1(?=\s+(?:for|on|at|tomorrow|today)\b|[,.?!]|$)",
+            r"\b(?:titled|called|named|name|with the name)\s+(['\"]?)([a-zA-Z0-9][^'\",.?!]*?)\1(?=\s+(?:for|on|at|tomorrow|today)\b|[,.?!]|$)",
             text,
             re.IGNORECASE
         )
+        if not title_match:
+            title_match = re.search(
+                r"\bcall\s+this\s+appointment\s+(['\"]?)([a-zA-Z0-9][^'\",.?!]*?)\1\b",
+                text,
+                re.IGNORECASE,
+            )
         if title_match:
             slots["title"] = title_match.group(2).strip()
         else:
             # fallback for simpler patterns like "delete appointment School"
             # only for delete/update actions
             if slots.get("action") in ["delete", "update"]:
-                simple_title = re.search(r"\bappointment\s+([a-zA-Z][a-zA-Z0-9\s]*?)(?:\.|$)", text, re.IGNORECASE)
+                simple_title = re.search(
+                    r"\bappointment\s+(?!on\b|for\b|at\b|tomorrow\b|today\b|yesterday\b)([a-zA-Z][a-zA-Z0-9\s]*?)(?:\.|$)",
+                    text,
+                    re.IGNORECASE,
+                )
                 if simple_title:
                     slots["title"] = simple_title.group(1).strip()
+                else:
+                    # handle "change ... for the meeting X"
+                    meeting_title = re.search(
+                        r"\bfor\s+(?:the\s+)?([a-zA-Z][a-zA-Z0-9\s]*?)(?:\s+appointment\b|[?.!,]|$)",
+                        text,
+                        re.IGNORECASE,
+                    )
+                    if meeting_title:
+                        title = meeting_title.group(1).strip()
+                        title = re.sub(r"^(my|the)\s+", "", title, flags=re.IGNORECASE)
+                        slots["title"] = title
+                    else:
+                        # handle "my XYZ appointment"
+                        my_title = re.search(
+                            r"\b(?:my|the)\s+([a-zA-Z][a-zA-Z0-9\s]*?)\s+appointment\b",
+                            text,
+                            re.IGNORECASE,
+                        )
+                        if my_title:
+                            slots["title"] = my_title.group(1).strip()
 
         # extract location
         # handles "in Room 12", "at Building A", or "to Room 15" (for updates)
         loc_match = re.search(
-            r"\b(?:in|at|location|to)\s+([a-zA-Z][a-zA-Z0-9\s\-]+?)(?=\b(?:tomorrow|today|on|for)\b|[?.!,]|$)",
+            r"\b(?:in|at|to)\s+(?:the\s+)?(?:location\s+)?([a-zA-Z][a-zA-Z0-9\s\-]+?)(?=\b(?:tomorrow|today|on|for)\b|[?.!,]|$)",
             text,
             re.IGNORECASE,
         )
+        if not loc_match:
+            loc_match = re.search(
+                r"\blocation\s+([a-zA-Z][a-zA-Z0-9\s\-]+?)(?=\b(?:tomorrow|today|on|for)\b|[?.!,]|$)",
+                text,
+                re.IGNORECASE,
+            )
         if loc_match:
             slots["location"] = loc_match.group(1).strip()
+
+        # if they mention "place" or "location" while updating but didn't provide a value
+        if slots.get("action") == "update" and re.search(r"\b(place|location)\b", lower_text):
+            slots.setdefault("update_field", "location")
 
         # extract time of day
         # needs to have "at" before it or "am/pm" after to avoid matching random numbers

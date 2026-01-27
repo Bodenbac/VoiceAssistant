@@ -58,7 +58,7 @@ class TestRestCalendarClient(unittest.TestCase):
         result = self.client.get_event(5)
 
         self.assertEqual(result, entry)
-        mock_get.assert_called_once_with(f"{self.client.base_url}?id=5")
+        mock_get.assert_called_once_with(f"{self.client.base_url}{self.client._id_separator}id=5")
 
     @patch("requests.get")
     def test_get_event_error(self, mock_get):
@@ -78,7 +78,7 @@ class TestRestCalendarClient(unittest.TestCase):
 
         self.assertEqual(result, entry)
         mock_put.assert_called_once_with(
-            f"{self.client.base_url}?id={event_id}",
+            f"{self.client.base_url}{self.client._id_separator}id={event_id}",
             json=update_payload
         )
 
