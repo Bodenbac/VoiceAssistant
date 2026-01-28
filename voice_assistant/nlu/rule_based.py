@@ -84,7 +84,7 @@ class SimpleRuleNLU(IntentRecognizer):
             pass
         else:
             loc_match = re.search(
-                r"\b(?:in|at)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?=\b(?:tomorrow|today|yesterday|after)\b|[?.!,]|$)",
+                r"\b(?:in|at)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?=\b(?:tomorrow|today|yesterday|after|on|for|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|[?.!,]|$)",
                 text,
                 re.IGNORECASE,
             )
@@ -92,7 +92,7 @@ class SimpleRuleNLU(IntentRecognizer):
                 slots["location"] = loc_match.group(1).strip()
             else:
                 follow_match = re.search(
-                    r"\b(?:and\s+then|and)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?:[?.!,]|$)",
+                    r"\b(?:and\s+then|and)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?=\b(?:tomorrow|today|yesterday|after|on|for|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|[?.!,]|$)",
                     text,
                     re.IGNORECASE,
                 )
