@@ -20,7 +20,7 @@ class SimpleRuleNLU(IntentRecognizer):
 
         # check if user is asking about weather
         # note: includes common weather-related words
-        if re.search(r"\b(weather|temperature|forecast|rain|raining|sunny|cloudy|snow)\b", t):
+        if re.search(r"\b(weather|temperature|forecast|rain|shower|clear|clouds|cloud|snow|mist|thunderstorms?)\b", t):
             return self.get_weather_intent(text)
 
         # check for calendar/appointment related stuff
@@ -38,7 +38,7 @@ class SimpleRuleNLU(IntentRecognizer):
 
         # handle follow-up queries like "what about tomorrow?" or "and in Marburg"
         # assumes they're continuing previous weather conversation
-        if re.search(r"\b(tomorrow|today|then|that day|yesterday|and in|in\s+[a-zA-Z])\b", t):
+        if re.search(r"\b(tomorrow|today|then|that day|yesterday|and in|and on|in\s+[a-zA-Z])\b", t):
             return self.get_weather_intent(text)
 
         # if nothing matches, return fallback intent
@@ -50,15 +50,20 @@ class SimpleRuleNLU(IntentRecognizer):
 
         # check if this is a yes/no question
         # like "will it rain?" "is it going to snow?" etc
-        if re.search(r"\b(will it|is it going to|is it gonna)\b", lower_text):
+        if re.search(r"\b(will it|is it going to|is it gonna|will there be)\b", lower_text):
             slots["question_type"] = "yes_no"
 
             # extract what weather condition they're asking about
-            # "will it rain?" -> "rain"
-            # "will it snow?" -> "snow"
-            condition_match = re.search(r"\b(?:will it|is it going to|is it gonna)\s+(\w+)", lower_text)
+            # only the exact 9 API conditions
+            # "will there be rain?" -> "rain"
+            # "will there be shower rain?" -> "shower rain"
+            # "will there be clear sky?" -> "clear sky"
+            condition_match = re.search(
+                r"\b(?:will it|is it going to|is it gonna|will there be)\s+(?:be\s+)?(?:a\s+)?(?:the\s+)?(shower\s+rain|clear\s+sky|few\s+clouds|scattered\s+clouds|broken\s+clouds|thunderstorms?|rain|snow|mist)\b",
+                lower_text
+            )
             if condition_match:
-                slots["asked_condition"] = condition_match.group(1)
+                slots["asked_condition"] = condition_match.group(1).strip()
 
         # Time/day slot extraction
         if "tomorrow" in lower_text:
@@ -92,7 +97,7 @@ class SimpleRuleNLU(IntentRecognizer):
                 slots["location"] = loc_match.group(1).strip()
             else:
                 follow_match = re.search(
-                    r"\b(?:and\s+then|and)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?=\b(?:tomorrow|today|yesterday|after|on|for|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|[?.!,]|$)",
+                    r"\b(?:and\s+then|and)\s+(?:in|at)\s+([a-zA-Z][a-zA-Z\s\-]+?)(?=\b(?:tomorrow|today|yesterday|after|on|for|this|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|[?.!,]|$)",
                     text,
                     re.IGNORECASE,
                 )

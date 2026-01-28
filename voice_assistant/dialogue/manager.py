@@ -97,6 +97,42 @@ class SimpleDialogueManager(DialogueManagerIF):
 
         return response
 
+    def _normalize_condition_input(self, asked_condition: str) -> str:
+        """Normalize user input - only handles thunderstorms plural."""
+        condition_lower = asked_condition.lower().strip()
+
+        # Only normalize thunderstorms (plural) to thunderstorm (singular)
+        if condition_lower == "thunderstorms":
+            return "thunderstorm"
+
+        return condition_lower
+
+    def _match_weather_condition(self, asked_condition: str, actual_condition: str) -> bool:
+        """Determine if asked condition matches actual forecast - exact match only."""
+        actual_lower = actual_condition.lower().strip()
+        asked_lower = asked_condition.lower().strip()
+
+        # Normalize thunderstorms to thunderstorm
+        normalized_asked = self._normalize_condition_input(asked_lower)
+
+        # Exact match only
+        return normalized_asked == actual_lower
+
+    def _get_natural_phrasing(self, condition: str, is_affirmative: bool) -> str:
+        """Generate response phrasing using exact condition names."""
+        condition_lower = condition.lower().strip()
+
+        # Use exact condition names with "there will be" format
+        # Handle thunderstorms plural
+        if condition_lower == "thunderstorms":
+            condition_text = "a thunderstorm"
+        else:
+            condition_text = condition_lower
+
+        if is_affirmative:
+            return f"there will be {condition_text}"
+        else:
+            return f"there will not be {condition_text}"
 
     def create_weather_response(self, current_intent_slots, raw_text: str):
 
@@ -139,28 +175,16 @@ class SimpleDialogueManager(DialogueManagerIF):
         asked_condition = self.state.slots.get("asked_condition")
 
         if question_type == "yes_no" and asked_condition:
-            # Check if the actual weather matches what they asked about
-            condition_lower = condition.lower()
-            asked_lower = asked_condition.lower()
+            # Use new matching system
+            is_match = self._match_weather_condition(asked_condition, condition)
 
-            # check for matches (rain includes "rain" and "shower rain")
-            is_match = False
-            if "rain" in asked_lower and "rain" in condition_lower:
-                is_match = True
-            elif "snow" in asked_lower and "snow" in condition_lower:
-                is_match = True
-            elif "sunny" in asked_lower and "clear sky" in condition_lower:
-                is_match = True
-            elif "cloud" in asked_lower and "cloud" in condition_lower:
-                is_match = True
-            elif asked_lower in condition_lower:
-                is_match = True
-
-            # build yes/no response
+            # Generate grammatically correct response
             if is_match:
-                return f"Yes, it will {asked_condition} {day_phrase} in {location}. Temperatures will be between {min_temp} and {max_temp} degrees Celsius."
+                phrasing = self._get_natural_phrasing(asked_condition, True)
+                return f"Yes, {phrasing} {day_phrase} in {location}. Temperatures will be between {min_temp} and {max_temp} degrees Celsius."
             else:
-                return f"No, it will not {asked_condition} {day_phrase}. The weather in {location} will be {condition}, with temperatures between {min_temp} and {max_temp} degrees Celsius."
+                phrasing_no = self._get_natural_phrasing(asked_condition, False)
+                return f"No, {phrasing_no} {day_phrase}. The weather in {location} will be {condition}, with temperatures between {min_temp} and {max_temp} degrees Celsius."
 
         # default response for general weather questions
         return (
