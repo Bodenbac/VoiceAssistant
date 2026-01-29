@@ -116,7 +116,7 @@ class SimpleRuleNLU(IntentRecognizer):
 
         # First figure out what action the user wants to do
         # checking for common verbs that indicate create/delete/update/list
-        if re.search(r"\b(change|update|modify|move)\b", lower_text) and re.search(r"\b(place|location)\b", lower_text):
+        if re.search(r"\b(change|changed|update|updated|modify|modified|move|moved)\b", lower_text) and re.search(r"\b(place|location)\b", lower_text):
             slots["action"] = "update"
         elif re.search(r"\b(call this appointment|name this appointment)\b", lower_text):
             slots["action"] = "create"
@@ -124,7 +124,7 @@ class SimpleRuleNLU(IntentRecognizer):
             slots["action"] = "create"
         elif re.search(r"\b(delete|remove|cancel)\b", lower_text):
             slots["action"] = "delete"
-        elif re.search(r"\b(update|change|modify|move)\b", lower_text):
+        elif re.search(r"\b(update|updated|change|changed|modify|modified|move|moved)\b", lower_text):
             slots["action"] = "update"
         elif re.search(r"\b(show|list|get|find|where|what('?s| is).*appointment)\b", lower_text):
             slots["action"] = "list"
@@ -220,6 +220,8 @@ class SimpleRuleNLU(IntentRecognizer):
         # if they mention "place" or "location" while updating but didn't provide a value
         if slots.get("action") == "update" and re.search(r"\b(place|location)\b", lower_text):
             slots.setdefault("update_field", "location")
+        if slots.get("action") == "update" and re.search(r"\b(time|hour)\b", lower_text):
+            slots.setdefault("update_field", "time")
 
         # extract time of day
         # needs to have "at" before it or "am/pm" after to avoid matching random numbers

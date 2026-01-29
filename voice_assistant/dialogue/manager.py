@@ -60,10 +60,20 @@ class SimpleDialogueManager(DialogueManagerIF):
         # 1) Update dialogue state
         # -------------------------
         if intent.name == self.state.active_intent:
-            self.state.slots.update(intent.slots)
+            if intent.name == "update_event":
+                # avoid leaking stale slots across update requests
+                self.state.slots = intent.slots.copy()
+            else:
+                self.state.slots.update(intent.slots)
         else:
             self.state.active_intent = intent.name
             self.state.slots = intent.slots.copy()
+        if intent.name == "weather_query":
+            # clear stale yes/no context when current query is not yes/no
+            if "question_type" not in intent.slots:
+                self.state.slots.pop("question_type", None)
+            if "asked_condition" not in intent.slots:
+                self.state.slots.pop("asked_condition", None)
         if "location" in intent.slots and intent.slots.get("location"):
             self.state.last_location = intent.slots.get("location")
 
@@ -576,10 +586,6 @@ class SimpleDialogueManager(DialogueManagerIF):
                 day_phrase = self._naturalize_day(day_offset)
                 return f"I found {len(matching)} appointments {day_phrase}. Which one should I update?"
 
-        # if they said "my appointment tomorrow" we can use the last query results
-        if not event_id and self.state.last_queried_events:
-            event_id = self.state.last_queried_events[0].get("id")
-
         # try to resolve by title if provided
         if not event_id and "title" in self.state.slots:
             title_to_find = self._normalize_title(self.state.slots.get("title"))
@@ -606,6 +612,10 @@ class SimpleDialogueManager(DialogueManagerIF):
                 else:
                     return f"Couldn't find an appointment with title '{self.state.slots.get('title')}'."
 
+        # if they said "my appointment tomorrow" we can use the last query results
+        if not event_id and self.state.last_queried_events:
+            event_id = self.state.last_queried_events[0].get("id")
+
         if not event_id:
             self.state.slots["awaiting"] = "title"
             return "Which appointment should I update?"
@@ -616,13 +626,50 @@ class SimpleDialogueManager(DialogueManagerIF):
             updates["location"] = self.state.slots["location"]
         if self.state.slots.get("update_field") == "title" and "title" in self.state.slots:
             updates["title"] = self.state.slots["title"]
-        # could add more fields here like time or description
+        # could add more fields here like time or description, tbd?
+        day_offset = self.state.slots.get("day")
+        time_str = self.state.slots.get("time")
+        if day_offset is not None or time_str:
+            base_date = None
+            if day_offset is not None:
+                target_date = datetime.now() + timedelta(days=day_offset)
+                base_date = target_date.date()
+            else:
+                try:
+                    event = self.calendar_client.get_event(event_id)
+                    start = event.get("start_time", "")
+                    base_date = datetime.strptime(start, "%Y-%m-%dT%H:%M").date()
+                except Exception:
+                    base_date = None
+
+            if base_date and time_str:
+                hour, minute = time_str.split(":")
+                start_time = f"{base_date:%Y-%m-%d}T{hour}:{minute}"
+                end_dt = datetime.combine(base_date, datetime.strptime(time_str, "%H:%M").time()) + timedelta(hours=1)
+                updates["start_time"] = start_time
+                updates["end_time"] = end_dt.strftime("%Y-%m-%dT%H:%M")
+            elif base_date and day_offset is not None and not time_str:
+                try:
+                    event = self.calendar_client.get_event(event_id)
+                    start = event.get("start_time", "")
+                    end = event.get("end_time", "")
+                    start_dt = datetime.strptime(start, "%Y-%m-%dT%H:%M")
+                    end_dt = datetime.strptime(end, "%Y-%m-%dT%H:%M") if end else start_dt + timedelta(hours=1)
+                    new_start = datetime.combine(base_date, start_dt.time())
+                    new_end = datetime.combine(base_date, end_dt.time())
+                    updates["start_time"] = new_start.strftime("%Y-%m-%dT%H:%M")
+                    updates["end_time"] = new_end.strftime("%Y-%m-%dT%H:%M")
+                except Exception:
+                    pass
 
         if not updates:
             # user didnt specify what to change
             if self.state.slots.get("update_field") == "location":
                 self.state.slots["awaiting"] = "location"
                 return "What is the new location?"
+            if self.state.slots.get("update_field") == "time":
+                self.state.slots["awaiting"] = "time"
+                return "What time should I set?"
             return "What should I change about the appointment?"
 
         # send the update to the API
@@ -652,6 +699,16 @@ class SimpleDialogueManager(DialogueManagerIF):
             if not location:
                 return "Where should it take place?"
             self.state.slots["location"] = location
+            self.state.slots.pop("awaiting", None)
+            return self._handle_update_event()
+
+        if awaiting == "time":
+            time_str = intent.slots.get("time")
+            if not time_str:
+                time_str = self._parse_time(text)
+            if not time_str:
+                return "What time should I set?"
+            self.state.slots["time"] = time_str
             self.state.slots.pop("awaiting", None)
             return self._handle_update_event()
 
