@@ -1,8 +1,18 @@
-# <img src="images/icon.png" alt="Voice Assistant" width="64" height="64"> VoiceAssistant
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#)
-[![Code Style](https://img.shields.io/badge/Code%20Style-Black-black.svg)](https://black.readthedocs.io/)
+
+Run the system using Docker
+
+Build
+- `docker build -t voice-assistant .`
+
+Run
+- `docker run --rm -v "<path-to-audio-files-folder>:/data" voice-assistant python -m voice_assistant.app /data/<audio-file-name>.wav`
+for example
+docker run --rm -v "D:\Voice Assistant\VoiceAssistant\audios:/data" voice-assistant python -m voice_assistant.app /data/Frankfurt_Snow.wav
+
+
+
+
 
 Build a local, modular voice assistant that takes spoken English as input and produces spoken English as output. The system runs offline (no cloud models) and integrates a Weather API and a Calendar API in later milestones.
 
@@ -25,6 +35,7 @@ Run the assistant
 - `python -m voice_assistant`
 - Use a larger ASR model for a single run: `python -m voice_assistant --asr-model medium`
 - Supported sizes: `tiny`, `base`, `small`, `medium`
+
 
 ## Project Structure
 
@@ -103,7 +114,6 @@ Build
 Run
 - `docker run --rm -it voice-assistant`
 
-Note: Audio I/O inside containers depends on host setup (ALSA/PulseAudio passthrough). Adjust run flags for your environment.
 
 ## Tests
 

@@ -51,128 +51,107 @@ def build_tts() -> SpeechSynthesizer:
         raise
 
 
-def run(model_override: str | None = None) -> None:
-    # 1. line in console: Display ASR model info
-    model_choice = (model_override or MODEL)
-    model_name, model_size_mb = get_model_info(model_choice)
-    print(f'[ASR] Selected model: Faster-Whisper "{model_name}" model ({model_size_mb}mb)')
-
-    # is_speaking = False  clever fix but doesnt work
-
-    def on_text(txt: str) -> None:
-        is_speaking = False
-        if is_speaking:
-            return
-        
-        intent = nlu.parse(txt)
-        response = dm.handle(intent, txt)
-        if response:
-            is_speaking = True
-            try:
-                asr.stop() # stupid fix but works
-                tts.speak(response)
-                asr.start()
-            except Exception as e:
-                print("THIS FUCKING PIECE OF GARBAGE DOES NOT WORK: ,", e)
-            finally:
-                is_speaking=False
-        if intent and intent.name == "exit":
-            # small delay to allow TTS to finish
-            time.sleep(0.3)
-            asr.stop()
-            sys.exit(0)
-    # 2. line in console: Load ASR (downloads automatically if missing)
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    print(f'[ASR] Loading "{model_name}" model (downloads if needed)...')
-
-    # 3. line in console: Build and start ASR
+def run() -> None:
+    # 1. Setup Models
+    model_name, _ = get_model_info(MODEL)
     asr = build_asr(model_name)
-
     nlu: IntentRecognizer = SimpleRuleNLU()
     dm = SimpleDialogueManager()
-
-    start_event = threading.Event()
-    start_error: list[Exception] = []
-
-    def bootstrap_asr() -> None:
-        try:
-            asr.start()
-        except Exception as exc:
-            start_error.append(exc)
-        finally:
-            start_event.set()
-
-    threading.Thread(target=bootstrap_asr, daemon=True).start()
-
-    # 4. line in console: Wait for ASR to finish loading
-    from .config import ASR_STARTUP_TIMEOUT_SECONDS
-    if not start_event.wait(timeout=ASR_STARTUP_TIMEOUT_SECONDS):
-        print(f"[Voice Assistant] ASR startup timed out after {ASR_STARTUP_TIMEOUT_SECONDS} seconds.")
-        return
-
-    if start_error:
-        print(f"[Voice Assistant] Failed to start ASR: {start_error[0]}")
-        return
-
-    print()
-
-    # 5. line in console: Now initialize TTS
-    print("[TTS] Selected model: Pyttsx3")
     tts = build_tts()
-    print("[TTS] Model initialized successfully")
-    print()
 
-    # 6. line in console: Setup callback
-    # 6. line in console: Setup callback
-    def on_text(txt: str) -> None:
-        # Pause microphone during processing
+    def process_text(txt: str):
+        """Helper to run the NLU/DM/TTS logic on any text string."""
+        print(f"\nTranscription: {txt}")
+        intent = nlu.parse(txt)
+        
+        if intent:
+            print(f"Intent: {intent.name} | Slots: {intent.slots}")
+        
+        response = dm.handle(intent, txt)
+        if response:
+            tts.speak(response)
+
+    # 2. CHECK: Are we processing a file or using the mic?
+    # Usage: python -m voice_assistant.app path/to/audio.wav
+    if len(sys.argv) > 1:
+        audio_path = sys.argv[1]
+        if os.path.exists(audio_path):
+            print(f"[MODE] File Processing: {audio_path}")
+
+            # Attempt playback (skipped if fails, e.g. in Docker)
+            try:
+                import wave
+                import numpy as np
+                import sounddevice as sd
+
+                with wave.open(audio_path, 'rb') as wf:
+                    samplerate = wf.getframerate()
+                    # Read all frames -> byte string
+                    raw_data = wf.readframes(wf.getnframes())
+                    # Convert to int16 (standard WAV PCM)
+                    # Note: This assumes 16-bit audio. For robust parsing one might need soundfile,
+                    # but pure wave+numpy is a decent fallback for standard files.
+                    audio_np = np.frombuffer(raw_data, dtype=np.int16)
+                    
+                    # If stereo, reshape? wave returns interleaved.
+                    # sounddevice handles interleaved by default if channels match.
+                    channels = wf.getnchannels()
+                    if channels > 1:
+                        # Reshape to (frames, channels)
+                        audio_np = audio_np.reshape(-1, channels)
+
+                    print(f"[Audio] Playing file ({samplerate} Hz)...")
+                    sd.play(audio_np, samplerate)
+                    sd.wait()
+                    print("[Audio] Playback complete.")
+            except Exception as e:
+                print(f"[Audio] Playback skipped: {e}")
+
+            # Initialize model if not already loaded (e.g. running in Docker without mic)
+            if asr.model is None:
+                print(f"[ASR] Initializing ASR model for file input...")
+                from faster_whisper import WhisperModel
+                
+                # Ensure model directory exists
+                model_dir = asr._get_model_directory()
+                if not os.path.exists(model_dir):
+                    os.makedirs(model_dir, exist_ok=True)
+
+                asr.model = WhisperModel(
+                    asr.model_size,
+                    device=asr.device,
+                    compute_type=asr.compute_type,
+                    download_root=str(model_dir),
+                )
+
+            # Faster-Whisper transcribe takes the file path directly
+            segments, _ = asr.model.transcribe(audio_path)
+            full_text = " ".join([s.text for s in segments]).strip()
+            process_text(full_text)
+            print("\n[Done] File processed. Exiting.")
+            return
+        else:
+            print(f"Error: File {audio_path} not found.")
+            return
+
+    # 3. ORIGINAL MIC LOGIC (Only runs if no file argument is given)
+    print("[MODE] Microphone Streaming activated.")
+    
+    def on_text_callback(txt: str) -> None:
         asr.pause()
-
         try:
-            # --- EVALUATION LOGS ---
-            print("\n" + "="*30)
-            print(f"Transcription: {txt}")
-
-            intent = nlu.parse(txt)
-            
-            if intent:
-                print(f"Intent: {intent.name}")
-                print(f"Slots:  {intent.slots}")
-            else:
-                print("No Intent Detected")
-
-            response = dm.handle(intent, txt)
-            
-            if response:
-                print(f"Response: {response}")
-                print("="*30 + "\n")
-                tts.speak(response)
-            # -----------------------
-
-            if intent and intent.name == "exit":
-                time.sleep(0.3)
-                asr.stop()
-                sys.exit(0)
+            process_text(txt)
         finally:
-            if not (intent and intent.name == "exit"):
-                asr.resume()
+            asr.resume()
 
-    asr.set_callback(on_text)
-
-    # 7. line in console: Ready, user can start speakin
-    tts.speak("Done! Ready to go.")
-    print("[Voice Assistant] Microphone activated. Listening for commands...")
-
+    asr.set_callback(on_text_callback)
+    asr.start()
+    
     try:
         while True:
             time.sleep(0.5)
     except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            asr.stop()
-        except Exception:
-            pass
+        asr.stop()
 
 
 if __name__ == "__main__":
